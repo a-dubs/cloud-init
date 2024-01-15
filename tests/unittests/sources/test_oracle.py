@@ -232,7 +232,7 @@ def metadata_version():
 
 
 @pytest.fixture
-def oracle_ds(request, fixture_utils, paths, metadata_version, mocker):
+def oracle_ds(request, fixture_utils, paths, metadata_version, mocker) -> oracle.DataSourceOracle:
     """
     Return an instantiated DataSourceOracle.
 
@@ -279,14 +279,14 @@ def oracle_ds(request, fixture_utils, paths, metadata_version, mocker):
 
 
 class TestDataSourceOracle:
-    def test_platform_info(self, oracle_ds):
+    def test_platform_info(self, oracle_ds: oracle.DataSourceOracle):
         assert "oracle" == oracle_ds.cloud_name
         assert "oracle" == oracle_ds.platform_type
 
-    def test_subplatform_before_fetch(self, oracle_ds):
+    def test_subplatform_before_fetch(self, oracle_ds: oracle.DataSourceOracle):
         assert "unknown" == oracle_ds.subplatform
 
-    def test_platform_info_after_fetch(self, oracle_ds):
+    def test_platform_info_after_fetch(self, oracle_ds: oracle.DataSourceOracle):
         oracle_ds._check_and_get_data()
         assert (
             "metadata (http://169.254.169.254/opc/v2/)"
@@ -294,20 +294,20 @@ class TestDataSourceOracle:
         )
 
     @pytest.mark.parametrize("metadata_version", [1])
-    def test_v1_platform_info_after_fetch(self, oracle_ds):
+    def test_v1_platform_info_after_fetch(self, oracle_ds: oracle.DataSourceOracle):
         oracle_ds._check_and_get_data()
         assert (
             "metadata (http://169.254.169.254/opc/v1/)"
             == oracle_ds.subplatform
         )
 
-    def test_secondary_nics_disabled_by_default(self, oracle_ds):
+    def test_secondary_nics_disabled_by_default(self, oracle_ds: oracle.DataSourceOracle):
         assert not oracle_ds.ds_cfg["configure_secondary_nics"]
 
     @pytest.mark.ds_sys_cfg(
         {"datasource": {"Oracle": {"configure_secondary_nics": True}}}
     )
-    def test_sys_cfg_can_enable_configure_secondary_nics(self, oracle_ds):
+    def test_sys_cfg_can_enable_configure_secondary_nics(self, oracle_ds: oracle.DataSourceOracle):
         assert oracle_ds.ds_cfg["configure_secondary_nics"]
 
 
@@ -337,14 +337,14 @@ class TestIsPlatformViable:
     mock.Mock(return_value=False),
 )
 class TestNetworkConfigFromOpcImds:
-    def test_no_secondary_nics_does_not_mutate_input(self, oracle_ds):
+    def test_no_secondary_nics_does_not_mutate_input(self, oracle_ds: oracle.DataSourceOracle):
         oracle_ds._vnics_data = [{}]
         # We test this by using in a non-dict to ensure that no dict
         # operations are used; failure would be seen as exceptions
         oracle_ds._network_config = object()
         oracle_ds._add_network_config_from_opc_imds(set_primary=False)
 
-    def test_bare_metal_machine_skipped(self, oracle_ds, caplog):
+    def test_bare_metal_machine_skipped(self, oracle_ds: oracle.DataSourceOracle, caplog):
         # nicIndex in the first entry indicates a bare metal machine
         oracle_ds._vnics_data = json.loads(OPC_BM_SECONDARY_VNIC_RESPONSE)
         # We test this by using a non-dict to ensure that no dict
@@ -396,7 +396,7 @@ class TestNetworkConfigFromOpcImds:
         "set_primary",
         [True, False],
     )
-    def test_imds_nic_setup_v1(self, set_primary, oracle_ds):
+    def test_imds_nic_setup_v1(self, set_primary, oracle_ds: oracle.DataSourceOracle):
         oracle_ds._vnics_data = json.loads(OPC_VM_SECONDARY_VNIC_RESPONSE)
         oracle_ds._network_config = {
             "version": 1,
@@ -439,7 +439,7 @@ class TestNetworkConfigFromOpcImds:
         "set_primary",
         [True, False],
     )
-    def test_secondary_nic_v2(self, set_primary, oracle_ds):
+    def test_secondary_nic_v2(self, set_primary, oracle_ds: oracle.DataSourceOracle):
         oracle_ds._vnics_data = json.loads(OPC_VM_SECONDARY_VNIC_RESPONSE)
         oracle_ds._network_config = {
             "version": 2,
@@ -1037,7 +1037,7 @@ class TestCommon_GetDataBehaviour:
             assert oracle_ds._check_and_get_data()
             assert expected_value == oracle_ds.get_public_ssh_keys()
 
-    def test_missing_user_data_handled_gracefully(self, oracle_ds):
+    def test_missing_user_data_handled_gracefully(self, oracle_ds: oracle.DataSourceOracle):
         instance_data = json.loads(OPC_V1_METADATA)
         del instance_data["metadata"]["user_data"]
         metadata = OpcMetadata(None, instance_data, None)
@@ -1049,7 +1049,7 @@ class TestCommon_GetDataBehaviour:
 
         assert oracle_ds.userdata_raw is None
 
-    def test_missing_metadata_handled_gracefully(self, oracle_ds):
+    def test_missing_metadata_handled_gracefully(self, oracle_ds: oracle.DataSourceOracle):
         instance_data = json.loads(OPC_V1_METADATA)
         del instance_data["metadata"]
         metadata = OpcMetadata(None, instance_data, None)
@@ -1154,7 +1154,7 @@ class TestNonIscsiRoot_GetDataBehaviour:
 
 @mock.patch(DS_PATH + ".get_interfaces_by_mac", return_value={})
 class TestNetworkConfig:
-    def test_network_config_cached(self, m_get_interfaces_by_mac, oracle_ds):
+    def test_network_config_cached(self, m_get_interfaces_by_mac, oracle_ds: oracle.DataSourceOracle):
         """.network_config should be cached"""
         assert 0 == oracle_ds._get_iscsi_config.call_count
         oracle_ds.network_config  # pylint: disable=pointless-statement
