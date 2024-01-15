@@ -58,6 +58,35 @@ OPC_VM_SECONDARY_VNIC_RESPONSE = """\
   "subnetCidrBlock" : "10.0.0.0/24"
 } ]"""
 
+IPV6_OPC_SECONDARY_VNIC_RESPONSE = """\
+[
+  {
+    "ipv6Addresses": [
+      "2603:c020:b:537e:e094:9518:7e22:4384"
+    ],
+    "ipv6SubnetCidrBlock": "2603:c020:b:537e::/64",
+    "ipv6VirtualRouterIp": "fe80::200:17ff:fedd:bb71",
+    "macAddr": "02:00:17:05:01:FA",
+    "privateIp": "10.0.0.211",
+    "subnetCidrBlock": "10.0.0.0/24",
+    "virtualRouterIp": "10.0.0.1",
+    "vlanTag": 3711,
+    "vnicId": "ocid1.vnic.oc1.phx.abyhqljtg7er37vm3b4gwlrbqlswqgfygmljksgkgnrev3e5rxpc3cl3gdia"
+  },
+  {
+    "ipv6Addresses": [
+      "2603:c020:b:537e:c03:2623:8749:477a"
+    ],
+    "ipv6SubnetCidrBlock": "2603:c020:b:537e::/64",
+    "ipv6VirtualRouterIp": "fe80::200:17ff:fedd:bb71",
+    "macAddr": "02:00:17:05:9B:C9",
+    "privateIp": "10.0.0.234",
+    "subnetCidrBlock": "10.0.0.0/24",
+    "virtualRouterIp": "10.0.0.1",
+    "vlanTag": 797,
+    "vnicId": "ocid1.vnic.oc1.phx.abyhqljtxulkhqzthadksf3lenanbalwukmabt34e26cnywrcrja7qm7hycq"
+  }
+]"""
 
 # Fetched with `curl http://169.254.169.254/opc/v1/instance/` (and then
 # truncated for line length)
@@ -84,6 +113,94 @@ OPC_V2_METADATA = """\
     "monitoringDisabled" : true,
     "managementDisabled" : true
   }
+}"""
+
+IPV6_OPC_V2_METADATA = """\
+{
+  "agentConfig": {
+    "allPluginsDisabled": false,
+    "managementDisabled": false,
+    "monitoringDisabled": false,
+    "pluginsConfig": [
+      {
+        "desiredState": "DISABLED",
+        "name": "Vulnerability Scanning"
+      },
+      {
+        "desiredState": "DISABLED",
+        "name": "Oracle Java Management Service"
+      },
+      {
+        "desiredState": "ENABLED",
+        "name": "OS Management Service Agent"
+      },
+      {
+        "desiredState": "DISABLED",
+        "name": "Management Agent"
+      },
+      {
+        "desiredState": "ENABLED",
+        "name": "Custom Logs Monitoring"
+      },
+      {
+        "desiredState": "DISABLED",
+        "name": "Compute RDMA GPU Monitoring"
+      },
+      {
+        "desiredState": "ENABLED",
+        "name": "Compute Instance Run Command"
+      },
+      {
+        "desiredState": "ENABLED",
+        "name": "Compute Instance Monitoring"
+      },
+      {
+        "desiredState": "DISABLED",
+        "name": "Compute HPC RDMA Auto-Configuration"
+      },
+      {
+        "desiredState": "DISABLED",
+        "name": "Compute HPC RDMA Authentication"
+      },
+      {
+        "desiredState": "DISABLED",
+        "name": "Block Volume Management"
+      },
+      {
+        "desiredState": "DISABLED",
+        "name": "Bastion"
+      }
+    ]
+  },
+  "availabilityDomain": "qIZq:PHX-AD-1",
+  "canonicalRegionName": "us-phoenix-1",
+  "compartmentId": "ocid1.compartment.oc1..aaaaaaaayyvhlkxdjkhzu56is7qenv35h4jfh26oconxsro4qr2qx6ezgbpq",
+  "displayName": "a-dubs-testing-ipv6",
+  "faultDomain": "FAULT-DOMAIN-1",
+  "hostname": "a-dubs-ipv6-vnic",
+  "id": "ocid1.instance.oc1.phx.anyhqljtniwq6sycgek6ikcen6gdaz3r6rkwncavwikxwh4rrfzhwxzyyvda",
+  "image": "ocid1.image.oc1.phx.aaaaaaaa6tymp4xfigkaqazfi6yohpljyeyum5nmijrhktkqxypt34ouwf6q",
+  "metadata": {
+    "ssh_authorized_keys": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCz2LjQYg3zBnKtj+RT/sjuS8GpOqwEumpD25zNL+ejfDG+CmV3Q+xanAjcP98NqGGDjSoclzaIJCvUQ/2IvWqtrbO75oQuZgpul4sFfI3B0YtPHDP2D1n2I1v+nOIiAr+ggiCL2zG+cUf3t+EydXzj5xpptUa8LCsR4ZWPHoLK8A6DIeQBG+gD6UGqmnrLpD19OGKsfx1VfiW7klkaQ4FckDeMVyayyRbRemQTkdTWPdSdSxJoxGOVnDQAsfnDEDCBh8shdB8yhAQ6ffI2zcsyOLVpAUjS21sYZi6c+hXNKSQT4qgmv8WK4tc0F7P4IeW2aAybfsK34NQ+yzCzuQUB ssh-key-2024-01-15"
+  },
+  "ociAdName": "phx-ad-3",
+  "region": "phx",
+  "regionInfo": {
+    "realmDomainComponent": "oraclecloud.com",
+    "realmKey": "oc1",
+    "regionIdentifier": "us-phoenix-1",
+    "regionKey": "PHX"
+  },
+  "shape": "VM.Standard.E4.Flex",
+  "shapeConfig": {
+    "maxVnicAttachments": 2,
+    "memoryInGBs": 16.0,
+    "networkingBandwidthInGbps": 1.0,
+    "ocpus": 1.0
+  },
+  "state": "Running",
+  "tenantId": "ocid1.tenancy.oc1..aaaaaaaao7f7cccogqrg5emjxkxmctzbnhl6zdkkx36yq2jgxnm4p5vmysbq",
+  "timeCreated": 1705333658878
 }"""
 
 # Just a small meaningless change to differentiate the two metadatas
