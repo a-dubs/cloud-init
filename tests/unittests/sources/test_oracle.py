@@ -11,7 +11,7 @@ import responses
 
 from cloudinit.sources import DataSourceOracle as oracle
 from cloudinit.sources import NetworkConfigSource
-from cloudinit.sources.DataSourceOracle import OpcMetadata
+from cloudinit.sources.DataSourceOracle import OpcMetadata, METADATA_URLS
 from cloudinit.url_helper import UrlError
 from tests.unittests import helpers as test_helpers
 from tests.unittests.helpers import does_not_raise
@@ -119,58 +119,7 @@ IPV6_OPC_V2_METADATA = """\
 {
   "agentConfig": {
     "allPluginsDisabled": false,
-    "managementDisabled": false,
-    "monitoringDisabled": false,
-    "pluginsConfig": [
-      {
-        "desiredState": "DISABLED",
-        "name": "Vulnerability Scanning"
-      },
-      {
-        "desiredState": "DISABLED",
-        "name": "Oracle Java Management Service"
-      },
-      {
-        "desiredState": "ENABLED",
-        "name": "OS Management Service Agent"
-      },
-      {
-        "desiredState": "DISABLED",
-        "name": "Management Agent"
-      },
-      {
-        "desiredState": "ENABLED",
-        "name": "Custom Logs Monitoring"
-      },
-      {
-        "desiredState": "DISABLED",
-        "name": "Compute RDMA GPU Monitoring"
-      },
-      {
-        "desiredState": "ENABLED",
-        "name": "Compute Instance Run Command"
-      },
-      {
-        "desiredState": "ENABLED",
-        "name": "Compute Instance Monitoring"
-      },
-      {
-        "desiredState": "DISABLED",
-        "name": "Compute HPC RDMA Auto-Configuration"
-      },
-      {
-        "desiredState": "DISABLED",
-        "name": "Compute HPC RDMA Authentication"
-      },
-      {
-        "desiredState": "DISABLED",
-        "name": "Block Volume Management"
-      },
-      {
-        "desiredState": "DISABLED",
-        "name": "Bastion"
-      }
-    ]
+    "managementDisabled": false
   },
   "availabilityDomain": "qIZq:PHX-AD-1",
   "canonicalRegionName": "us-phoenix-1",
@@ -178,10 +127,12 @@ IPV6_OPC_V2_METADATA = """\
   "displayName": "a-dubs-testing-ipv6",
   "faultDomain": "FAULT-DOMAIN-1",
   "hostname": "a-dubs-ipv6-vnic",
-  "id": "ocid1.instance.oc1.phx.anyhqljtniwq6sycgek6ikcen6gdaz3r6rkwncavwikxwh4rrfzhwxzyyvda",
+  "id": "ocid1.instance.oc1.phx.anyhqljtniwq6sycgek6ikcen6gdaz3r6rkTRUNCATED",
   "image": "ocid1.image.oc1.phx.aaaaaaaa6tymp4xfigkaqazfi6yohpljyeyum5nmijrhktkqxypt34ouwf6q",
   "metadata": {
-    "ssh_authorized_keys": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCz2LjQYg3zBnKtj+RT/sjuS8GpOqwEumpD25zNL+ejfDG+CmV3Q+xanAjcP98NqGGDjSoclzaIJCvUQ/2IvWqtrbO75oQuZgpul4sFfI3B0YtPHDP2D1n2I1v+nOIiAr+ggiCL2zG+cUf3t+EydXzj5xpptUa8LCsR4ZWPHoLK8A6DIeQBG+gD6UGqmnrLpD19OGKsfx1VfiW7klkaQ4FckDeMVyayyRbRemQTkdTWPdSdSxJoxGOVnDQAsfnDEDCBh8shdB8yhAQ6ffI2zcsyOLVpAUjS21sYZi6c+hXNKSQT4qgmv8WK4tc0F7P4IeW2aAybfsK34NQ+yzCzuQUB ssh-key-2024-01-15"
+    "ssh_authorized_keys": "ssh-rsa ... ssh-key-2024-01-15",
+    "user_data" : "IyEvYmluL3NoCnRvdWNoIC90bXAvZm9v"
+
   },
   "ociAdName": "phx-ad-3",
   "region": "phx",
@@ -232,7 +183,7 @@ def metadata_version():
 
 
 @pytest.fixture
-def oracle_ds(request, fixture_utils, paths, metadata_version, mocker) -> oracle.DataSourceOracle:
+def oracle_ds(request, fixture_utils, paths, metadata_version, mocker):
     """
     Return an instantiated DataSourceOracle.
 
@@ -243,7 +194,7 @@ def oracle_ds(request, fixture_utils, paths, metadata_version, mocker) -> oracle
           pytest.mark.is_iscsi gives as first param,
         * ``DataSourceOracle._get_iscsi_config`` returns a network cfg if
           is_iscsi else an empty network config,
-        * ``read_opc_metadata`` returns ``OPC_V1_METADATA``,
+        * ``read_opc_metadata`` returns ``OPC_V1_METADATA``get,
         * ``ephemeral.EphemeralDHCPv4`` and ``net.find_fallback_nic`` mocked to
           avoid subp calls
 
@@ -256,14 +207,16 @@ def oracle_ds(request, fixture_utils, paths, metadata_version, mocker) -> oracle
     is_iscsi = fixture_utils.closest_marker_first_arg_or(
         request, "is_iscsi", True
     )
-    metadata = OpcMetadata(metadata_version, json.loads(OPC_V2_METADATA), None)
+    metadata = OpcMetadata(metadata_version, json.loads(IPV6_OPC_V2_METADATA), None)
 
-    mocker.patch(DS_PATH + ".net.find_fallback_nic")
+    mocker.patch(DS_PATH + ".net.find_fallback_nic", return_value="testnic")
+    mocker.patch(DS_PATH + ".do_ipv6_interface_up")
     mocker.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
     mocker.patch(DS_PATH + "._read_system_uuid", return_value="someuuid")
     mocker.patch(DS_PATH + ".DataSourceOracle.ds_detect", return_value=True)
     mocker.patch(DS_PATH + ".read_opc_metadata", return_value=metadata)
     mocker.patch(DS_PATH + ".KlibcOracleNetworkConfigSource")
+    mocker.patch(DS_PATH + ".DataSourceOracle.wait_for_metadata_service")
     ds = oracle.DataSourceOracle(
         sys_cfg=sys_cfg,
         distro=mock.Mock(),
@@ -376,7 +329,7 @@ class TestNetworkConfigFromOpcImds:
     )
     def test_missing_mac_skipped(
         self,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle,
         network_config,
         network_config_key,
         caplog,
@@ -488,7 +441,7 @@ class TestNetworkConfigFromOpcImds:
         m_ensure_netfailover_safe,
         configure_secondary_nics,
         error_add_network,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle,
         caplog,
         capsys,
     ):
@@ -927,6 +880,25 @@ class TestReadOpcMetadata:
         ) == caplog.record_tuples[-2][1:]
 
 
+
+@pytest.fixture()
+def mock_do_ipv6_interface_up(mocker):
+    yield mocker.patch(DS_PATH + ".do_ipv6_interface_up")
+
+@pytest.fixture()
+def mock_is_connected(mocker):
+    yield mocker.patch(DS_PATH + ".DataSourceOracle.check_connectivity", return_value=None)
+
+@pytest.fixture()
+def mock_wait_for_metadata_service(mocker, oracle_ds):
+
+    def fake_wait_for_metadata_service(nic, valid_urls, metadata_version):
+        oracle_ds.metadata_address = METADATA_URLS[0]
+        return True
+
+    yield mocker.patch(DS_PATH + ".DataSourceOracle.wait_for_metadata_service",
+                       side_effect=fake_wait_for_metadata_service)
+
 @pytest.mark.parametrize(
     "",
     [
@@ -951,7 +923,7 @@ class TestCommon_GetDataBehaviour:
     )
     def test_false_if_platform_not_viable(
         self,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle,
     ):
         assert not oracle_ds._check_and_get_data()
 
@@ -960,16 +932,16 @@ class TestCommon_GetDataBehaviour:
         (
             ("availability-zone", "phx-ad-3"),
             ("launch-index", 0),
-            ("local-hostname", "instance-20200320-1400"),
+            ("local-hostname", "a-dubs-ipv6-vnic"),
             (
                 "instance-id",
                 "ocid1.instance.oc1.phx"
-                ".anyhqljtniwq6syc3nex55sep5w34qbwmw6TRUNCATED",
+                ".anyhqljtniwq6sycgek6ikcen6gdaz3r6rkTRUNCATED"
             ),
-            ("name", "instance-20200320-1400"),
+            ("name", "a-dubs-testing-ipv6"),
             (
                 "public_keys",
-                "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ truncated",
+                "ssh-rsa ... ssh-key-2024-01-15",
             ),
         ),
     )
@@ -977,15 +949,33 @@ class TestCommon_GetDataBehaviour:
         self,
         keyname,
         expected_value,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle,
+        mock_is_connected,
+        mock_do_ipv6_interface_up,
+        mock_wait_for_metadata_service
     ):
+    # @mock.patch("util.is_resolvable_url", mock.Mock(return_value=True))
+        # with mock.patch(
+        #     "cloudinit.util.is_resolvable_url", return_value=False
+        # ) as m_is_resolvable_url:
+
+        # def fake_wait_for_metadata_service(nic, valid_urls, metadata_version):
+        #     oracle_ds.metadata_address = METADATA_URLS[0]
+        #     return True
+
+        # with mock.patch(DS_PATH + ".DataSourceOracle.wait_for_metadata_service",
+        #     return_value=True, side_effect=fake_wait_for_metadata_service) as m_wait_for_metadata_service:
+        # with mock.patch("cloudinit.url_helper.wait_for_url", return_value=True,
+                        # ):
         assert oracle_ds._check_and_get_data()
         assert expected_value == oracle_ds.metadata[keyname]
+        # assert mock_do_ipv6_interface_up.call_count == 1
+        # assert m_wait_for_metadata_service.call_count == 1
 
     @pytest.mark.parametrize(
         "attribute_name,expected_value",
         [
-            ("_crawled_metadata", json.loads(OPC_V2_METADATA)),
+            ("_crawled_metadata", json.loads(IPV6_OPC_V2_METADATA)),
             (
                 "userdata_raw",
                 base64.b64decode(b"IyEvYmluL3NoCnRvdWNoIC90bXAvZm9v"),
@@ -1000,8 +990,16 @@ class TestCommon_GetDataBehaviour:
         self,
         attribute_name,
         expected_value,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle,
+        mock_is_connected,
+        mock_do_ipv6_interface_up,
+        mock_wait_for_metadata_service
     ):
+        
+
+        # with mock.patch(DS_PATH + ".DataSourceOracle.wait_for_metadata_service",
+        #     return_value=True, side_effect=fake_wait_for_metadata_service) as m_wait_for_metadata_service:
+            
         assert oracle_ds._check_and_get_data()
         assert expected_value == getattr(oracle_ds, attribute_name)
 
@@ -1022,7 +1020,8 @@ class TestCommon_GetDataBehaviour:
         ],
     )
     def test_public_keys_handled_correctly(
-        self, ssh_keys, expected_value, oracle_ds
+        self, ssh_keys, expected_value, oracle_ds: oracle.DataSourceOracle,
+          mock_is_connected, mock_wait_for_metadata_service
     ):
         instance_data = json.loads(OPC_V1_METADATA)
         if ssh_keys is None:
@@ -1037,7 +1036,8 @@ class TestCommon_GetDataBehaviour:
             assert oracle_ds._check_and_get_data()
             assert expected_value == oracle_ds.get_public_ssh_keys()
 
-    def test_missing_user_data_handled_gracefully(self, oracle_ds: oracle.DataSourceOracle):
+    def test_missing_user_data_handled_gracefully(self, oracle_ds: oracle.DataSourceOracle, 
+                                                  mock_wait_for_metadata_service, mock_is_connected):
         instance_data = json.loads(OPC_V1_METADATA)
         del instance_data["metadata"]["user_data"]
         metadata = OpcMetadata(None, instance_data, None)
@@ -1049,7 +1049,7 @@ class TestCommon_GetDataBehaviour:
 
         assert oracle_ds.userdata_raw is None
 
-    def test_missing_metadata_handled_gracefully(self, oracle_ds: oracle.DataSourceOracle):
+    def test_missing_metadata_handled_gracefully(self, oracle_ds: oracle.DataSourceOracle, mock_wait_for_metadata_service, mock_is_connected):
         instance_data = json.loads(OPC_V1_METADATA)
         del instance_data["metadata"]
         metadata = OpcMetadata(None, instance_data, None)
@@ -1063,93 +1063,100 @@ class TestCommon_GetDataBehaviour:
         assert [] == oracle_ds.get_public_ssh_keys()
 
 
-@pytest.mark.is_iscsi(False)
-class TestNonIscsiRoot_GetDataBehaviour:
-    @mock.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
-    @mock.patch(DS_PATH + ".net.find_fallback_nic")
-    def test_run_net_files(
-        self, m_find_fallback_nic, m_EphemeralDHCPv4, oracle_ds
-    ):
-        in_context_manager = False
+## NO LONGER APPLICABLE - `read_opc_metadata` is no longer called from
+# @pytest.mark.is_iscsi(False)
+# class TestNonIscsiRoot_GetDataBehaviour:
+    ## within the "with network_context:" context manager.
+    # @mock.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
+    # @mock.patch(DS_PATH + ".net.find_fallback_nic", return_value="testnic")
+    # @mock.patch(DS_PATH + ".DataSourceOracle.check_connectivity", return_value=None)
+    # def test_run_net_files(
+    #     self,
+    #     m_check_connectivity,
+    #     m_find_fallback_nic,
+    #     m_EphemeralDHCPv4,
+    #     oracle_ds: oracle.DataSourceOracle,
+    # ):
+    #     in_context_manager = False
 
-        def enter_context_manager():
-            nonlocal in_context_manager
-            in_context_manager = True
+    #     def enter_context_manager():
+    #         nonlocal in_context_manager
+    #         in_context_manager = True
 
-        def exit_context_manager(*args):
-            nonlocal in_context_manager
-            in_context_manager = False
+    #     def exit_context_manager(*args):
+    #         nonlocal in_context_manager
+    #         in_context_manager = False
 
-        m_EphemeralDHCPv4.return_value.__enter__.side_effect = (
-            enter_context_manager
-        )
-        m_EphemeralDHCPv4.return_value.__exit__.side_effect = (
-            exit_context_manager
-        )
+    #     m_EphemeralDHCPv4.return_value.__enter__.side_effect = (
+    #         enter_context_manager
+    #     )
+    #     m_EphemeralDHCPv4.return_value.__exit__.side_effect = (
+    #         exit_context_manager
+    #     )
 
-        def assert_in_context_manager(**kwargs):
-            assert in_context_manager
-            return mock.MagicMock()
+    #     def assert_in_context_manager(**kwargs):
+    #         assert in_context_manager
+    #         return mock.MagicMock()
 
-        with mock.patch(
-            DS_PATH + ".read_opc_metadata",
-            mock.Mock(side_effect=assert_in_context_manager),
-        ):
-            assert oracle_ds._check_and_get_data()
+    #     with mock.patch(
+    #         DS_PATH + ".read_opc_metadata",
+    #         mock.Mock(side_effect=assert_in_context_manager),
+    #     ):
+    #         assert oracle_ds._check_and_get_data()
 
-        assert [
-            mock.call(
-                oracle_ds.distro,
-                iface=m_find_fallback_nic.return_value,
-                connectivity_url_data={
-                    "headers": {"Authorization": "Bearer Oracle"},
-                    "url": "http://169.254.169.254/opc/v2/instance/",
-                },
-            )
-        ] == m_EphemeralDHCPv4.call_args_list
+    #     assert [
+    #         mock.call(
+    #             oracle_ds.distro,
+    #             iface=m_find_fallback_nic.return_value,
+    #             connectivity_url_data={
+    #                 "headers": {"Authorization": "Bearer Oracle"},
+    #                 "url": "http://169.254.169.254/opc/v2/instance/",
+    #             },
+    #         )
+    #     ] == m_EphemeralDHCPv4.call_args_list
 
-    @mock.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
-    @mock.patch(DS_PATH + ".net.find_fallback_nic")
-    def test_read_opc_metadata_called_with_ephemeral_dhcp(
-        self, m_find_fallback_nic, m_EphemeralDHCPv4, oracle_ds
-    ):
-        in_context_manager = False
+    # @mock.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
+    # @mock.patch(DS_PATH + ".net.find_fallback_nic")
+    # def test_read_opc_metadata_called_with_ephemeral_dhcp(
+    #     self, m_find_fallback_nic, m_EphemeralDHCPv4, oracle_ds
+    # ):
+    #     in_context_manager = False
 
-        def enter_context_manager():
-            nonlocal in_context_manager
-            in_context_manager = True
+    #     def enter_context_manager():
+    #         nonlocal in_context_manager
+    #         in_context_manager = True
 
-        def exit_context_manager(*args):
-            nonlocal in_context_manager
-            in_context_manager = False
+    #     def exit_context_manager(*args):
+    #         nonlocal in_context_manager
+    #         in_context_manager = False
 
-        m_EphemeralDHCPv4.return_value.__enter__.side_effect = (
-            enter_context_manager
-        )
-        m_EphemeralDHCPv4.return_value.__exit__.side_effect = (
-            exit_context_manager
-        )
+    #     m_EphemeralDHCPv4.return_value.__enter__.side_effect = (
+    #         enter_context_manager
+    #     )
+    #     m_EphemeralDHCPv4.return_value.__exit__.side_effect = (
+    #         exit_context_manager
+    #     )
 
-        def assert_in_context_manager(**kwargs):
-            assert in_context_manager
-            return mock.MagicMock()
+    #     def assert_in_context_manager(**kwargs):
+    #         assert in_context_manager
+    #         return mock.MagicMock()
 
-        with mock.patch(
-            DS_PATH + ".read_opc_metadata",
-            mock.Mock(side_effect=assert_in_context_manager),
-        ):
-            assert oracle_ds._check_and_get_data()
+    #     with mock.patch(
+    #         DS_PATH + ".read_opc_metadata",
+    #         mock.Mock(side_effect=assert_in_context_manager),
+    #     ):
+    #         assert oracle_ds._check_and_get_data()
 
-        assert [
-            mock.call(
-                oracle_ds.distro,
-                iface=m_find_fallback_nic.return_value,
-                connectivity_url_data={
-                    "headers": {"Authorization": "Bearer Oracle"},
-                    "url": "http://169.254.169.254/opc/v2/instance/",
-                },
-            )
-        ] == m_EphemeralDHCPv4.call_args_list
+    #     assert [
+    #         mock.call(
+    #             oracle_ds.distro,
+    #             iface=m_find_fallback_nic.return_value,
+    #             connectivity_url_data={
+    #                 "headers": {"Authorization": "Bearer Oracle"},
+    #                 "url": "http://169.254.169.254/opc/v2/instance/",
+    #             },
+    #         )
+    #     ] == m_EphemeralDHCPv4.call_args_list
 
 
 @mock.patch(DS_PATH + ".get_interfaces_by_mac", return_value={})
@@ -1199,7 +1206,7 @@ class TestNetworkConfig:
         configure_secondary_nics,
         is_iscsi,
         expected_set_primary,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle
     ):
         """Test that _add_network_config_from_opc_imds is called as expected
 
@@ -1226,7 +1233,7 @@ class TestNetworkConfig:
         self,
         m_get_interfaces_by_mac,
         caplog,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle,
     ):
         oracle_ds.ds_cfg["configure_secondary_nics"] = True
         oracle_ds._vnics_data = "DummyData"
@@ -1265,7 +1272,7 @@ class TestNetworkConfig:
         self,
         m_get_interfaces_by_mac,
         set_primary,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle,
         caplog,
     ):
         assert not oracle_ds._has_network_config()
@@ -1280,7 +1287,7 @@ class TestNetworkConfig:
     def test_missing_mac_skipped(
         self,
         m_get_interfaces_by_mac,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle,
         caplog,
     ):
         """If no intefaces by mac found, then _network_config not setted and
@@ -1305,7 +1312,7 @@ class TestNetworkConfig:
         self,
         m_get_interfaces_by_mac,
         set_primary,
-        oracle_ds,
+        oracle_ds: oracle.DataSourceOracle,
         caplog,
         mocker,
     ):

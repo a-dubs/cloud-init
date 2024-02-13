@@ -154,16 +154,27 @@ class DataSourceOracle(sources.DataSource):
     
 
     def check_connectivity(self, nic=None, metadata_version=2):
+        """
+        Check the connectivity to the metadata service.
+
+        Args:
+            nic (str): The network interface to use for the connectivity check.
+            metadata_version (int): The version of the metadata service.
+
+        Returns:
+            list or None: A list of metadata URLs that are successfully reachable,
+            or None if no URLs are reachable.
+        """
         connected = []
         urls = self.ds_cfg.get("metadata_urls", METADATA_URLS)
         for url in urls:
-           chk_url = url.format(nic=nic, version=metadata_version)
-           if util.is_resolvable_url(chk_url):
-              connected.append(url)
+            chk_url = url.format(nic=nic, version=metadata_version)
+            if util.is_resolvable_url(chk_url):
+                connected.append(url)
 
-        if (len(connected)):
-           return(connected)
-        return(None)
+        if len(connected):
+            return connected
+        return None
 
 
     def wait_for_metadata_service(self, nic, valid_urls, metadata_version):
@@ -171,7 +182,7 @@ class DataSourceOracle(sources.DataSource):
         urls = self.ds_cfg.get("metadata_urls", METADATA_URLS)
 
         if not valid_urls:
-           filtered = self.check_connectivity(nic, metadata_version)
+           filtered = self.check_connectivity(nic, metadata_version) or []
         else:
            filtered = valid_urls
 
@@ -216,6 +227,14 @@ class DataSourceOracle(sources.DataSource):
         LOG.debug("wait_for_metadata: Returned metadata address: %s", self.metadata_address)
         return bool(avail_url)
 
+    def _get_subplatform(self):
+        """
+        This checks if metadata_address attribute exists and is not None, 
+        unlike the superclass method which only checks if the attribute exists.
+        """
+        if hasattr(self, "metadata_address") and self.metadata_address != None:
+            return "metadata (%s)" % getattr(self, "metadata_address")
+        return sources.METADATA_UNKNOWN
 
     def _get_data(self):
 
@@ -230,10 +249,12 @@ class DataSourceOracle(sources.DataSource):
         # Convert tuple to string
         nic_name=''.join(iface)
 
+        # if we are not on a iscsi root, then we need to setup the
+        # network interface to be able to reach the metadata service
         if not self._is_iscsi_root():
             connected = self.check_connectivity(nic=nic_name, metadata_version=2)
             if not connected:
-                network_context = dhcp.EphemeralDHCPv4(
+                network_context = ephemeral.EphemeralDHCPv4(
                    iface,
                    connectivity_url_data={
                        "url": METADATA_PATTERN.format(version=2, path="instance"),
@@ -243,18 +264,18 @@ class DataSourceOracle(sources.DataSource):
                 # Setup IPv6 interface.
                 do_ipv6_interface_up(nic_name)
 
-            with network_context:
-               try:
-                  if not self.wait_for_metadata_service(nic_name, connected, metadata_version=2):
-                     raise sources.InvalidMetaDataException(
-                        "No active metadata service found"
-                     )
-               except IOError as e:
-                  raise sources.InvalidMetaDataException(
-                     "IOError contacting metadata service: {error}".format(
-                         error=str(e)
-                     )
-                  )
+                with network_context:
+                    try:
+                        if not self.wait_for_metadata_service(nic_name, connected, metadata_version=2):
+                            raise sources.InvalidMetaDataException(
+                                "No active metadata service found"
+                            )
+                    except IOError as e:
+                        raise sources.InvalidMetaDataException(
+                            "IOError contacting metadata service: {error}".format(
+                                error=str(e)
+                            )
+                        )
         else:
             self.metadata_address = METADATA_ROOT
 
