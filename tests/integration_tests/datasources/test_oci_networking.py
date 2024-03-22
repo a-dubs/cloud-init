@@ -156,3 +156,78 @@ def test_oci_networking_system_cfg(client: IntegrationInstance, tmpdir):
     netplan_cfg = yaml.safe_load(netplan_yaml)
     expected_netplan_cfg = yaml.safe_load(SYSTEM_CFG)
     assert expected_netplan_cfg == netplan_cfg
+
+
+
+def _test_crawl(client, ip):
+    assert client.execute("cloud-init clean --logs").ok
+    assert client.execute("cloud-init init --local").ok
+    log = client.read_from_file("/var/log/cloud-init.log")
+    assert re.findall(f"Using metadata source:.*{ip}.*'", log)
+    result = re.findall(r"Crawl of metadata service.* (\d+.\d+) seconds", log)
+    if len(result) != 1:
+        pytest.fail(f"Expected 1 metadata crawl time, got {result}")
+    # 20 would still be a crazy long time for metadata service to crawl,
+    # but it's short enough to know we're not waiting for a response
+    assert float(result[0]) < 20
+
+ORACLE_IPV4_IMDS_IP = "169.254.169.254"
+ORACLE_IPV6_IMDS_IP = "http://[fe80::00c1:a9fe:a9fe%ens3]"
+
+@pytest.mark.skipif(PLATFORM != "oci", reason="test is OCI specific")
+def test_dual_stack(client: IntegrationInstance):
+    # Drop IPv4 responses
+    assert client.execute(f"iptables -I INPUT -s {ORACLE_IPV4_IMDS_IP} -j DROP").ok
+    _test_crawl(client, f"http://[{ORACLE_IPV6_IMDS_IP}]")
+
+    # Block IPv4 requests
+    assert client.execute(f"iptables -I OUTPUT -d {ORACLE_IPV4_IMDS_IP} -j REJECT").ok
+    _test_crawl(client, f"http://[{ORACLE_IPV6_IMDS_IP}]")
+
+    # Re-enable IPv4
+    assert client.execute(f"iptables -D OUTPUT -d {ORACLE_IPV4_IMDS_IP} -j REJECT").ok
+    assert client.execute(f"iptables -D INPUT -s {ORACLE_IPV4_IMDS_IP} -j DROP").ok
+
+    # Drop IPv6 responses
+    assert client.execute(f"ip6tables -I INPUT -s {ORACLE_IPV6_IMDS_IP} -j DROP").ok
+    _test_crawl(client, f"http://{ORACLE_IPV4_IMDS_IP}")
+
+    # Block IPv6 requests
+    assert client.execute(f"ip6tables -I OUTPUT -d {ORACLE_IPV6_IMDS_IP} -j REJECT").ok
+    _test_crawl(client, f"http://{ORACLE_IPV4_IMDS_IP}")
+
+    # Force NoDHCPLeaseError (by removing dhcp clients) and assert ipv6 still
+    # works
+    # Destructive test goes last
+    # dhclient is at /sbin/dhclient on bionic but /usr/sbin/dhclient elseware
+    for dhcp_client in ("dhclient", "dhcpcd"):
+        if client.execute(f"command -v {dhcp_client}").ok:
+            assert client.execute(f"rm $(command -v {dhcp_client})").ok
+
+    client.restart()
+    log = client.read_from_file("/var/log/cloud-init.log")
+    assert "Crawl of metadata service using link-local ipv6 took" in log
+
+
+
+@pytest.mark.skipif(PLATFORM != "oci", reason="test is OCI specific")
+def test_single_stack(client: IntegrationInstance):
+    # Drop IPv4 responses
+    assert client.execute(f"iptables -I INPUT -s {ORACLE_IPV4_IMDS_IP} -j DROP").ok
+    _test_crawl(client, f"http://[{ORACLE_IPV6_IMDS_IP}]")
+
+    # Block IPv4 requests
+    assert client.execute(f"iptables -I OUTPUT -d {ORACLE_IPV4_IMDS_IP} -j REJECT").ok
+    _test_crawl(client, f"http://[{ORACLE_IPV6_IMDS_IP}]")
+
+    # Force NoDHCPLeaseError (by removing dhcp clients) and assert ipv6 still
+    # works
+    # Destructive test goes last
+    # dhclient is at /sbin/dhclient on bionic but /usr/sbin/dhclient elseware
+    for dhcp_client in ("dhclient", "dhcpcd"):
+        if client.execute(f"command -v {dhcp_client}").ok:
+            assert client.execute(f"rm $(command -v {dhcp_client})").ok
+
+    client.restart()
+    log = client.read_from_file("/var/log/cloud-init.log")
+    assert "Crawl of metadata service using link-local ipv6 took" in log

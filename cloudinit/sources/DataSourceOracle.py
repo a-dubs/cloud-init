@@ -45,6 +45,9 @@ METADATA_URLS = [
     METADATA_ROOT,
     "http://[fe80::00c1:a9fe:a9fe%{nic}]/opc/v{version}/",
 ]
+
+# ipv6-only-vnic-1
+# http://[fe80::00c1:a9fe:a9fe%ipv6-only-vnic-1]/opc/v1/
 # https://docs.cloud.oracle.com/iaas/Content/Network/Troubleshoot/connectionhang.htm#Overview,
 # indicates that an MTU of 9000 is used within OCI
 MTU = 9000
