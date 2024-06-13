@@ -17,6 +17,7 @@ def has_docstring(node):
     return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Str)
 
 def find_functions_info(directories):
+    total_number_of_functions = 0
     """Find functions without type hints and functions without docstrings in multiple directories."""
     files_info = {}
     for directory in directories:
@@ -31,6 +32,7 @@ def find_functions_info(directories):
                             tree = ast.parse(f.read(), filename=file_path)
                             for node in ast.walk(tree):
                                 if isinstance(node, ast.FunctionDef):
+                                    total_number_of_functions += 1
                                     if not has_type_hint(node) or not has_return_type_hint(node):
                                         functions_without_type_hints.append(node.name)
                                     if not has_docstring(node):
@@ -42,7 +44,7 @@ def find_functions_info(directories):
                         "functions_without_type_hints": functions_without_type_hints,
                         "functions_without_docstrings": functions_without_docstrings
                     }
-    return files_info
+    return files_info, total_number_of_functions
 
 def save_to_yaml(data, output_file):
     """Save data to a YAML file."""
@@ -54,7 +56,8 @@ def count_functions(info, key):
     return sum(len(file_info[key]) for file_info in info.values())
 
 def analyze(directories, output_file):
-    functions_info = find_functions_info(directories)
+    functions_info, total_number_of_functions = find_functions_info(directories)
+    print(f"Total number of functions: {total_number_of_functions}")
     save_to_yaml(functions_info, output_file)
     print(f"Total functions without type hints: {count_functions(functions_info, 'functions_without_type_hints')}")
     print(f"Total functions without docstrings: {count_functions(functions_info, 'functions_without_docstrings')}")
