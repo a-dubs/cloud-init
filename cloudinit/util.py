@@ -143,7 +143,7 @@ def encode_text(text: Union[str, bytes], encoding="utf-8") -> bytes:
     # Converts a text string into a binary type using given encoding.
     return text if isinstance(text, bytes) else text.encode(encoding=encoding)
 
-
+# just adding this so i have something to commit
 def maybe_b64decode(data: bytes) -> bytes:
     """base64 decode data
 
