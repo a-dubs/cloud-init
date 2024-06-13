@@ -145,13 +145,6 @@ def encode_text(text: Union[str, bytes], encoding="utf-8") -> bytes:
 
 
 def maybe_b64decode(data: bytes) -> bytes:
-    """base64 decode data
-
-    If data is base64 encoded bytes, return b64decode(data).
-    If not, return data unmodified.
-
-    @param data: data as bytes. TypeError is raised if not bytes.
-    """
     if not isinstance(data, bytes):
         raise TypeError("data is '%s', expected bytes" % type(data))
     try:
