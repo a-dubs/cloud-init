@@ -1,0 +1,85 @@
+# .github/workflows/analyze_functions.yml
+name: Check Python Function Documentation and Type Hints
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check_documentation_and_type_hints:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout source branch (PR branch)
+      uses: actions/checkout@v2
+      with:
+        ref: ${{ github.head_ref }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: pip install pyyaml
+
+    - name: Analyze source branch - cloudinit (docstrings and type hints)
+      run: |
+        python tools/analyze_functions.py analyze \
+          --output-file source_cloudinit_analysis.yml \
+          --dir cloudinit \
+          --docstrings \
+          --type-hints
+
+    - name: Analyze source branch - tests (docstrings only)
+      run: |
+        python tools/analyze_functions.py analyze \
+          --output-file source_tests_analysis.yml \
+          --dir tests \
+          --docstrings
+
+    - name: Upload source analysis results
+      uses: actions/upload-artifact@v2
+      with:
+        name: source-analysis
+        path: |
+          source_cloudinit_analysis.yml
+          source_tests_analysis.yml
+
+    - name: Checkout target branch (base branch)
+      uses: actions/checkout@v2
+      with:
+        ref: ${{ github.base_ref }}
+
+    - name: Download source analysis results
+      uses: actions/download-artifact@v2
+      with:
+        name: source-analysis
+
+    - name: Analyze target branch - cloudinit (docstrings and type hints)
+      run: |
+        python tools/analyze_functions.py analyze \
+          --output-file target_cloudinit_analysis.yml \
+          --dir cloudinit \
+          --docstrings \
+          --type-hints
+
+    - name: Analyze target branch - tests (docstrings only)
+      run: |
+        python tools/analyze_functions.py analyze \
+          --output-file target_tests_analysis.yml \
+          --dir tests \
+          --docstrings
+
+    - name: Compare analyses for cloudinit
+      run: |
+        python tools/analyze_functions.py compare \
+          --existing-analysis target_cloudinit_analysis.yml \
+          --new-analysis source_cloudinit_analysis.yml
+
+    - name: Compare analyses for tests
+      run: |
+        python tools/analyze_functions.py compare \
+          --existing-analysis target_tests_analysis.yml \
+          --new-analysis source_tests_analysis.yml
