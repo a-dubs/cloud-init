@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - add-functions-checking-github-action
 
 jobs:
   analyze:
