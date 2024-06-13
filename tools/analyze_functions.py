@@ -4,7 +4,6 @@ import yaml
 import argparse
 import sys
 
-
 def has_type_hint(node):
     """Check if a node has type hints."""
     # if there are no arguments, return True since no type hints are needed
