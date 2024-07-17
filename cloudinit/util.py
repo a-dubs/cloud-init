@@ -144,7 +144,7 @@ def encode_text(text: Union[str, bytes], encoding="utf-8") -> bytes:
     return text if isinstance(text, bytes) else text.encode(encoding=encoding)
 
 
-def maybe_b64decode(data: bytes) -> bytes:
+def maybe_b64decode(data) -> bytes:
     """base64 decode data
 
     If data is base64 encoded bytes, return b64decode(data).
