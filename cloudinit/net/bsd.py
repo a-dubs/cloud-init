@@ -68,24 +68,39 @@ class BSDRenderer(renderer.Renderer):
 
             for subnet in interface.get("subnets", []):
                 if subnet.get("type") == "static":
-                    if not subnet.get("netmask"):
+                    if not subnet.get("netmask") and not subnet.get("prefix"):
                         LOG.debug(
                             "Skipping IP %s, because there is no netmask",
                             subnet.get("address"),
                         )
                         continue
-                    LOG.debug(
-                        "Configuring dev %s with %s / %s",
-                        device_name,
-                        subnet.get("address"),
-                        subnet.get("netmask"),
-                    )
+                    if subnet.get("netmask"):
+                        LOG.debug(
+                            "Configuring dev %s with %s / %s",
+                            device_name,
+                            subnet.get("address"),
+                            subnet.get("netmask"),
+                        )
+                        self.interface_configurations[device_name] = {
+                             "address": subnet.get("address"),
+                             "netmask": subnet.get("netmask"),
+                             "mtu": subnet.get("mtu") or interface.get("mtu"),
+                        }
+                    elif subnet.get("prefix"):
+                    # IPv6 here
+                        LOG.debug(
+                            "Configuring dev %s with %s / %s",
+                            device_name,
+                            subnet.get("address"),
+                            subnet.get("prefix"),
+                        )
 
-                    self.interface_configurations[device_name] = {
-                        "address": subnet.get("address"),
-                        "netmask": subnet.get("netmask"),
-                        "mtu": subnet.get("mtu") or interface.get("mtu"),
-                    }
+                        self.interface_configurations_ipv6[device_name] = {
+                            "address": subnet.get("address"),
+                            "prefix": subnet.get("prefix"),
+                            "mtu": subnet.get("mtu") or interface.get("mtu"),
+                        }
+                    #END IPv6
 
                 elif subnet.get("type") == "static6":
                     if not subnet.get("prefix"):
@@ -124,6 +139,14 @@ class BSDRenderer(renderer.Renderer):
                             {
                                 "network": "0.0.0.0",
                                 "netmask": "0.0.0.0",
+                                "gateway": gateway,
+                            }
+                        )
+                    if gateway and len(gateway.split(":")) > 1:
+                        routes.append(
+                            {
+                                "network": "::",
+                                "prefix": "0",
                                 "gateway": gateway,
                             }
                         )
