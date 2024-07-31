@@ -78,3 +78,4 @@ runcmd:
 # /dev/sdb2: LABEL="part2_label" 
 # UUID="6329ed3d-84a3-4c2f-bdf5-52167a87998d" BLOCK_SIZE="4096" TYPE="ext4" 
 # PARTUUID="4f6cdfbf-b4fb-cd44-a663-b1bdac19b608"
+
