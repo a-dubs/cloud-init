@@ -1,0 +1,62 @@
+#cloud-config
+
+mounts:
+- [ /dev/sdb, /vol2-mountpoint]
+
+#cloud-config
+write_files:
+  - path: /etc/udev/rules.d/99-mount-sdb.rules
+    content: |
+      KERNEL=="sdb", SUBSYSTEM=="block", ACTION=="add", TAG+="systemd", ENV{SYSTEMD_WANTS}="mount-sdb.service"
+  - path: /etc/systemd/system/mount-sdb.service
+    content: |
+      [Unit]
+      Description=Mount /dev/sdb to /vol2-mountpoint
+      Requires=dev-sdb.device
+      After=dev-sdb.device
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/mount-sdb.sh
+      RemainAfterExit=true
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /usr/local/bin/mount-sdb.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      DEVICE="/dev/sdb"
+      MOUNT_POINT="/vol2-mountpoint"
+      LOG_FILE="/var/log/mount-sdb.log"
+
+      # Set the timezone to EST
+      export TZ="America/New_York"
+
+      log_date() {
+        echo "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$@"
+      }
+
+      log_date "Starting mount script" >> "$LOG_FILE"
+
+      if [ -b "$DEVICE" ]; then
+        log_date "Device $DEVICE exists" >> "$LOG_FILE"
+        mkdir -p "$MOUNT_POINT"
+        log_date "Created mount point $MOUNT_POINT" >> "$LOG_FILE"
+
+        # Mount the device to the mount point and redirect the output to a log file
+        echo "running command: mount $DEVICE $MOUNT_POINT" >> "$LOG_FILE"
+        sudo mount "$DEVICE" "$MOUNT_POINT" >> "$LOG_FILE" 2>&1
+
+        if [ $? -eq 0 ]; then
+          log_date "Mounted $DEVICE to $MOUNT_POINT successfully" >> "$LOG_FILE"
+        else
+          log_date "Failed to mount $DEVICE to $MOUNT_POINT" >> "$LOG_FILE"
+        fi
+      else
+        log_date "Device $DEVICE not found" >> "$LOG_FILE"
+      fi
+
+runcmd:
+  - mkdir -p /vol2-mountpoint
+  - systemctl daemon-reload
