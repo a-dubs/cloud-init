@@ -1,0 +1,80 @@
+#cloud-config
+
+mounts:
+- [ part1_label, /vol2-mountpoint]
+
+#cloud-config
+write_files:
+  - path: /etc/udev/rules.d/99-mount-sdb.rules
+    content: |
+      KERNEL=="sdb", SUBSYSTEM=="block", ACTION=="add", TAG+="systemd", ENV{SYSTEMD_WANTS}="mount-sdb.service"
+  - path: /etc/systemd/system/mount-sdb.service
+    content: |
+      [Unit]
+      Description=Mount /dev/sdb to /vol2-mountpoint
+      Requires=dev-sdb.device
+      After=dev-sdb.device
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/mount-sdb.sh
+      RemainAfterExit=true
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /usr/local/bin/mount-sdb.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      LABEL="part1_label"
+      
+      MOUNT_POINT="/vol2-mountpoint"
+      LOG_FILE="/var/log/mount-sdb.log"
+
+      # Get the device path using the label (if it exists)
+      DEVICE=$(blkid -L "$LABEL")
+
+      # Set the timezone to EST
+      export TZ="America/New_York"
+
+      log_date() {
+        echo "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$@"
+      }
+
+      log_date "Starting mount script" >> "$LOG_FILE"
+
+      if [ -b "$DEVICE" ]; then
+        log_date "Device $DEVICE exists" >> "$LOG_FILE"
+        mkdir -p "$MOUNT_POINT"
+        log_date "Created mount point $MOUNT_POINT" >> "$LOG_FILE"
+
+        # mount using LABEL
+        echo "running command: mount -L $LABEL $MOUNT_POINT" >> "$LOG_FILE"
+        mount -L "$LABEL" "$MOUNT_POINT" >> "$LOG_FILE" 2>&1
+
+        if [ $? -eq 0 ]; then
+          log_date "Mounted $LABEL to $MOUNT_POINT successfully" >> "$LOG_FILE"
+        else
+          log_date "Failed to mount $LABEL to $MOUNT_POINT" >> "$LOG_FILE"
+        fi
+      else
+        log_date "Block device not found for label: $LABEL" >> "$LOG_FILE"
+      fi
+
+runcmd:
+  - mkdir -p /vol2-mountpoint
+  - systemctl daemon-reload
+
+
+# root@dev:~# blkid /dev/sdb
+# /dev/sdb: PTUUID="c9f338b8-94f7-9147-9ff9-ab53d53d284d" PTTYPE="gpt"
+
+# root@dev:~# blkid /dev/sdb1
+# /dev/sdb1: LABEL="part1_label"
+# UUID="4c96b2f2-b060-4e03-9a21-b45a30ac6d2d" BLOCK_SIZE="4096" TYPE="ext4" 
+# PARTUUID="d03356c6-be21-7549-9cb8-98b598e1c9eb"
+
+# root@dev:~# blkid /dev/sdb2
+# /dev/sdb2: LABEL="part2_label" 
+# UUID="6329ed3d-84a3-4c2f-bdf5-52167a87998d" BLOCK_SIZE="4096" TYPE="ext4" 
+# PARTUUID="4f6cdfbf-b4fb-cd44-a663-b1bdac19b608"
