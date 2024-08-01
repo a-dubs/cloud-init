@@ -5,8 +5,13 @@
 """Define 'devel' subcommand argument parsers to include in cloud-init cmd."""
 
 import argparse
-
-from cloudinit.cmd.devel import hotplug_hook, make_mime, net_convert, render
+from cloudinit.cmd.devel import (
+    hotplug_hook,
+    make_mime,
+    mount_hook,
+    net_convert,
+    render,
+)
 
 
 def get_parser(parser=None):
@@ -31,12 +36,23 @@ def get_parser(parser=None):
             net_convert.get_parser,
             net_convert.handle_args,
         ),
-        (render.NAME, render.__doc__, render.get_parser, render.handle_args),
+        (
+            render.NAME,
+            render.__doc__,
+            render.get_parser,
+            render.handle_args,
+        ),
         (
             make_mime.NAME,
             make_mime.__doc__,
             make_mime.get_parser,
             make_mime.handle_args,
+        ),
+        (
+            mount_hook.NAME,
+            mount_hook.__doc__,
+            mount_hook.get_parser,
+            mount_hook.handle_args,
         ),
     ]
     for subcmd, helpmsg, get_parser, handler in subcmds:

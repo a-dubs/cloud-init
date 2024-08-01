@@ -349,6 +349,9 @@ def handle_swapcfg(swapcfg):
 
     return None
 
+def check_if_block_device_exists(device_path: str):
+    result = subp.subp(["blkid", "-o", "device", device_path], capture=True)
+    return result.return_code == 0
 
 def parse_fstab() -> Tuple[List[str], Dict[str, str], List[str]]:
     """Parse /etc/fstab.
