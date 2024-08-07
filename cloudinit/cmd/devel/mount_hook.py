@@ -45,6 +45,34 @@ def generate_blkid_command(label=None, uuid=None, partuuid=None):
 
     return cmd
 
+def generate_all_blkid_commands(query: str):
+    """
+    Generate all possible blkid commands based on query.
+    Will try it as block device, label, UUID, and PARTUUID.
+    """
+
+    return [
+        ["blkid", "-o", "device", query],
+        ["blkid", "-o", "device", "-t", f"LABEL={query}"],
+        ["blkid", "-o", "device", "-t", f"UUID={query}"],
+        ["blkid", "-o", "device", "-t", f"PARTUUID={query}"],
+    ]
+
+def get_block_device_from_query(query: str):
+    """
+    Will return the path of the block device if it exists, otherwise None.
+    """
+
+    for cmd in generate_all_blkid_commands(query):
+        try:
+            result = subp(cmd)
+            if result:
+                LOG.debug(f"Device from query '{query}' exists: {result}")
+            return result
+        except subprocess.CalledProcessError:
+            continue
+    return False
+
 
 def get_device_path(label=None, uuid=None, partuuid=None, block_device=None):
     """
@@ -81,7 +109,7 @@ def mount_device(device, mount_point):
     :param mount_point: The mount point directory.
     """
     try:
-        LOG.Debug(f"running mount command: mount {device} {mount_point}")
+        LOG.debug(f"running mount command: mount {device} {mount_point}")
         subprocess.run(["mount", device, mount_point], check=True)
         LOG.info(f"Mounted {device} to {mount_point} successfully")
     except subprocess.CalledProcessError as e:
@@ -118,7 +146,7 @@ def query_mount_status(
         print("Device not found")
 
 
-def handle_mount_event(
+def mount_device_command(
     mountpoint: str,
     label: str = None,
     uuid: str = None,
@@ -146,7 +174,7 @@ def handle_mount_event(
     # Ensure the mount point directory exists
     if not os.path.exists(mountpoint):
         LOG.info(f"Creating mount point directory {mountpoint}")
-        # subp(["mkdir", "-p", mountpoint]) # THIS FAILS WITH A PERMISSION DENIED ERROR
+        subp(["mkdir", "-p", mountpoint]) # THIS FAILS WITH A PERMISSION DENIED ERROR
 
     # Get the device path
     device = get_device_path(
@@ -157,6 +185,47 @@ def handle_mount_event(
         mount_device(device, mountpoint)
     else:
         LOG.error("Device not found")
+
+
+def get_cloud_init_fstab_entries() -> list[tuple[str, str]]:
+    """
+    Get all cloud-init generated fstab entries and return the source and target.
+
+    :return: A tuple containing the source and target of the cloud-init fstab entry.
+    """
+    cloud_init_fstab = "/etc/fstab"
+    results = []
+    with open(cloud_init_fstab, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("#"):
+                continue
+            if "cloud-init" in line:
+                source, target, *_ = line.split()
+                results.append((source, target))
+    return results  
+
+def handle_mount_event(udevaction: str, blockdevice: str):
+    # get all cloudinit fstab entries
+    # ignore any that are already mounted
+    # then run get_block_device_from_query and see if it matches blockdevice
+    # if it does, then mount it to the target
+    # if it doesn't, then do nothing
+
+    if udevaction != "add":
+        raise ValueError("Only 'add' udev action is supported")
+    
+    fstab_entries = get_cloud_init_fstab_entries()
+    for source, target in fstab_entries:
+        if os.path.ismount(target):
+            LOG.debug(f"Ignoring fstab entry {source} {target} as it is already mounted")
+        if get_block_device_from_query(source) == blockdevice:
+            LOG.info(f"Hotplugged block device {blockdevice} matches {source}")
+            mount_device(device=blockdevice, mount_point=target)
+            LOG.info(f"Mounted {blockdevice} to {target}")
+            return
+
+
 
 
 def handle_args(name, args):
@@ -194,12 +263,17 @@ def handle_args(name, args):
                     partuuid=args.partuuid,
                     blockdevice=args.blockdevice,
                 )
-            elif args.mount_action == "handle":
-                handle_mount_event(
+            elif args.mount_action == "mount":
+                mount_device_command(
                     mountpoint=args.mountpoint,
                     label=args.label,
                     uuid=args.uuid,
                     partuuid=args.partuuid,
+                    blockdevice=args.blockdevice,
+                )
+            elif args.mount_action == "handle":
+                handle_mount_event(
+                    udevaction=args.udevaction,
                     blockdevice=args.blockdevice,
                 )
             else:
@@ -231,8 +305,8 @@ def get_parser(parser=None):
     parser.description = __doc__
 
     subparsers = parser.add_subparsers(
-        title="Mount Action",
-        dest="mount_action",
+        title="Mount Hook Action",
+        dest="mount_hook_action",
     )
     subparsers.required = True
 
@@ -259,31 +333,40 @@ def get_parser(parser=None):
 
     handle_parser = subparsers.add_parser(
         "handle",
-        help="Handle the mount event.",
+        help="Handle the mount event",
     )
     handle_parser.add_argument(
         "--udevaction",
         required=True,
-        help="Specify action to take.",
+        help="Specify udev action",
         choices=["add", "remove"],
     )
     handle_parser.add_argument(
+        "--blockdevice",
+        help="Block device path that triggered the udev event",
+    )
+
+    mount_parser = subparsers.add_parser(
+        "mount",
+        help="Mount given device to the mount point",
+    )
+    mount_parser.add_argument(
         "--label",
         help="Label of the partition to mount",
     )
-    handle_parser.add_argument(
+    mount_parser.add_argument(
         "--uuid",
         help="UUID of the partition to mount",
     )
-    handle_parser.add_argument(
+    mount_parser.add_argument(
         "--partuuid",
         help="PARTUUID of the partition to mount",
     )
-    handle_parser.add_argument(
+    mount_parser.add_argument(
         "--blockdevice",
         help="Block device path (e.g., /dev/sdb1)",
     )
-    handle_parser.add_argument(
+    mount_parser.add_argument(
         "--mountpoint",
         required=True,
         help="Mount point directory",
