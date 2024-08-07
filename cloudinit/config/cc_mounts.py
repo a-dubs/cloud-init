@@ -589,3 +589,44 @@ def handle(name: str, cfg: Config, cloud: Cloud, args: list) -> None:
 
     activate_swap_if_needed(updated_cfg)
     mount_if_needed(uses_systemd, bool(sops), dirs)
+
+    LOG.info("[SC-1748] Creating systemd service file for block device attachment")
+    createSystemdServiceFile()
+    LOG.info("[SC-1748] Creating udev rule file for block device attachment")
+    createUdevRuleFile()
+
+def createSystemdServiceFile() -> str:
+    
+    content=f"""
+[Unit]
+Description=Handle block device attachment for %I
+Requires=dev-%i.device
+After=dev-%i.device
+
+[Service]
+Type=oneshot
+ExecStart=cloud-init devel mount-hook handle %I
+
+[Install]
+WantedBy=multi-user.target"""
+    
+    path = "/etc/systemd/system/cloud-init-mount-hook@.service"
+    util.write_file(path, content)
+    LOG.debug("Wrote systemd service file to %s:\n%s", path, content)
+    subp.subp(["systemctl", "daemon-reload"])
+    return path
+
+def createUdevRuleFile() -> str:
+    path = "/etc/udev/rules.d/99-cloud-init-mount-hook.rules"
+
+    content = (
+        'ACTION=="add", '
+        'SUBSYSTEM=="block", '
+        'KERNEL=="sd*[0-9]|nvme*n*|mmcblk*|loop*|ram*|ramdisk*", '
+        'TAG+="systemd", '
+        'ENV{SYSTEMD_WANTS}="cloud-init-mount-hook@%k.service"'
+    )
+
+    util.write_file(path, content)
+    LOG.debug("Wrote udev rule file to %s:\n%s", path, content)
+    return path
