@@ -595,9 +595,10 @@ def handle(name: str, cfg: Config, cloud: Cloud, args: list) -> None:
     LOG.info("[SC-1748] Creating udev rule file for block device attachment")
     createUdevRuleFile()
 
+
 def createSystemdServiceFile() -> str:
     
-    content=f"""
+    content=f"""\
 [Unit]
 Description=Handle block device attachment for %I
 Requires=dev-%i.device
@@ -605,7 +606,7 @@ After=dev-%i.device
 
 [Service]
 Type=oneshot
-ExecStart=cloud-init devel mount-hook handle %I
+ExecStart=cloud-init devel mount-hook handle --udevaction="add" --blockdevice=%I
 
 [Install]
 WantedBy=multi-user.target"""
@@ -616,8 +617,9 @@ WantedBy=multi-user.target"""
     subp.subp(["systemctl", "daemon-reload"])
     return path
 
+
 def createUdevRuleFile() -> str:
-    path = "/etc/udev/rules.d/99-cloud-init-mount-hook.rules"
+    path = "/etc/udev/rules.d/66-cloud-init-mount-hook.rules"
 
     content = (
         'ACTION=="add", '

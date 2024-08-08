@@ -7,7 +7,7 @@ import logging
 import os
 import subprocess
 import sys
-from cloudinit.subp import subp
+from cloudinit.subp import ProcessExecutionError, subp
 
 from cloudinit import log, reporting
 from cloudinit.reporting import events
@@ -69,7 +69,7 @@ def get_block_device_from_query(query: str):
             if result:
                 LOG.debug(f"Device from query '{query}' exists: {result}")
             return result
-        except subprocess.CalledProcessError:
+        except ProcessExecutionError:
             continue
     return False
 
@@ -205,6 +205,8 @@ def get_cloud_init_fstab_entries() -> list[tuple[str, str]]:
                 results.append((source, target))
     return results  
 
+
+
 def handle_mount_event(udevaction: str, blockdevice: str):
     # get all cloudinit fstab entries
     # ignore any that are already mounted
@@ -219,11 +221,40 @@ def handle_mount_event(udevaction: str, blockdevice: str):
     for source, target in fstab_entries:
         if os.path.ismount(target):
             LOG.debug(f"Ignoring fstab entry {source} {target} as it is already mounted")
-        if get_block_device_from_query(source) == blockdevice:
+        found_device = get_block_device_from_query(source).stdout.strip()
+        if found_device == blockdevice:
             LOG.info(f"Hotplugged block device {blockdevice} matches {source}")
             mount_device(device=blockdevice, mount_point=target)
             LOG.info(f"Mounted {blockdevice} to {target}")
-            return
+            break
+
+    # now check if all cloud-init fstab entries are mounted
+    everything_mounted = True
+    for source, target in fstab_entries:
+        if not os.path.ismount(target):
+            LOG.info(
+                f"Source '{source}' is not yet mounted to '{target}'. "
+                "Will keep udev rule and systemd service until all cloudinit "
+                "fstab entries are mounted."    
+            )
+            everything_mounted = False
+            break
+    
+    if everything_mounted:
+        LOG.info("All cloud-init fstab entries are mounted. Removing udev rule and systemd service.")
+        # remove udev rule 
+        udev_path = "/etc/udev/rules.d/66-cloud-init-mount-hook.rules"
+        try: 
+            subp(["rm",  udev_path])
+        except ProcessExecutionError as e:
+            LOG.error(f"Failed to remove {udev_path}: {e}")
+        
+        # remove systemd service
+        service_path = "/etc/systemd/system/cloud-init-mount-hook@.service"
+        try:
+            subp(["rm", service_path])
+        except ProcessExecutionError as e:
+            LOG.error(f"Failed to remove {service_path}: {e}")
 
 
 
@@ -246,24 +277,32 @@ def handle_args(name, args):
     if "reporting" in mount_init.cfg:
         reporting.update_configuration(mount_init.cfg.get("reporting"))
 
+    # if blockdevice doesn't start with /dev, then check for it in /dev
+    if args.blockdevice and not args.blockdevice.startswith("/dev"):
+        if os.path.exists(f"/dev/{args.blockdevice}"):
+            args.blockdevice = f"/dev/{args.blockdevice}"   
+        else:
+            LOG.error(f"Could not find full path for shorthand device {args.blockdevice}")
+
     LOG.debug(
         "%s called with the following arguments: {"
-        "mount_action: %s, udevaction: %s}",
+        "mount_hook_action: %s, udevaction: %s, blockdevice: %s}",
         name,
-        args.mount_action,
+        args.mount_hook_action,
         args.udevaction if "udevaction" in args else None,
+        args.blockdevice if "blockdevice" in args else None,
     )
 
     with mount_reporter:
         try:
-            if args.mount_action == "query":
+            if args.mount_hook_action == "query":
                 query_mount_status(
                     label=args.label,
                     uuid=args.uuid,
                     partuuid=args.partuuid,
                     blockdevice=args.blockdevice,
                 )
-            elif args.mount_action == "mount":
+            elif args.mount_hook_action == "mount":
                 mount_device_command(
                     mountpoint=args.mountpoint,
                     label=args.label,
@@ -271,7 +310,7 @@ def handle_args(name, args):
                     partuuid=args.partuuid,
                     blockdevice=args.blockdevice,
                 )
-            elif args.mount_action == "handle":
+            elif args.mount_hook_action == "handle":
                 handle_mount_event(
                     udevaction=args.udevaction,
                     blockdevice=args.blockdevice,
