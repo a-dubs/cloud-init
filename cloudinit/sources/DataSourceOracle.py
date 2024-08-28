@@ -21,7 +21,7 @@ import time
 from collections import namedtuple
 from typing import Dict, Optional, Tuple
 
-from cloudinit import atomic_helper, dmi, net, sources, util
+from cloudinit import atomic_helper, dmi, net, sources, subp, util
 from cloudinit.distros.networking import NetworkConfig
 from cloudinit.net import (
     cmdline,
@@ -29,7 +29,7 @@ from cloudinit.net import (
     get_interfaces_by_mac,
     is_netfail_master,
 )
-from cloudinit.url_helper import wait_for_url
+from cloudinit.url_helper import UrlError, readurl, combine_url, wait_for_url
 
 LOG = logging.getLogger(__name__)
 
@@ -38,8 +38,14 @@ BUILTIN_DS_CONFIG = {
     "configure_secondary_nics": False,
 }
 CHASSIS_ASSET_TAG = "OracleCloud.com"
-METADATA_ROOT = "http://169.254.169.254/opc/v{version}/"
-METADATA_PATTERN = METADATA_ROOT + "{path}/"
+IPV4_METADATA_ROOT = "http://169.254.169.254/opc/v{version}/"
+IPV6_METADATA_ROOT = "http://[fd00:c1::a9fe:a9fe]/opc/v{version}/"
+METADATA_PATTERN = IPV4_METADATA_ROOT + "{path}/"
+IPV6_METADATA_PATTERN = IPV6_METADATA_ROOT + "{path}/"
+METADATA_URLS = [
+    IPV4_METADATA_ROOT,
+    IPV6_METADATA_ROOT,
+]
 # https://docs.cloud.oracle.com/iaas/Content/Network/Troubleshoot/connectionhang.htm#Overview,
 # indicates that an MTU of 9000 is used within OCI
 MTU = 9000
@@ -167,22 +173,94 @@ class DataSourceOracle(sources.DataSource):
         """Check platform environment to report if this datasource may run."""
         return _is_platform_viable()
 
+
+    # def check_connectivity(self, metadata_version=2):
+    #     connected = []
+    #     urls = self.ds_cfg.get("metadata_urls", METADATA_URLS)
+    #     for url in urls:
+    #        chk_url = url.format(version=metadata_version)
+    #        if util.is_resolvable_url(chk_url):
+    #           connected.append(url)
+
+    #     if (len(connected)):
+    #        return(connected)
+    #     return(None)
+
+
+    # def wait_for_metadata_service(self, nic, valid_urls, metadata_version):
+
+    #     urls = self.ds_cfg.get("metadata_urls", METADATA_URLS)
+
+    #     if not valid_urls:
+    #        filtered = self.check_connectivity(nic, metadata_version)
+    #     else:
+    #        filtered = valid_urls
+
+    #     if set(filtered) != set(urls):
+    #         LOG.debug(
+    #             "Removed the following from metadata urls: %s",
+    #             list((set(urls) - set(filtered))),
+    #         )
+
+    #     if len(filtered):
+    #         urls = filtered
+    #     else:
+    #         LOG.warning("Empty metadata url list! using default list")
+    #         urls = METADATA_URLS
+
+    #     md_urls = []
+    #     url2base = {}
+    #     for url in urls:
+    #         md_url = url.format(nic=nic, version=metadata_version)
+    #         md_url = combine_url(md_url, "instance")
+    #         md_urls.append(md_url)
+    #         url2base[md_url] = url
+
+    #     url_params = self.get_url_params()
+    #     start_time = time.time()
+    #     avail_url, _response = wait_for_url(
+    #         urls=md_urls,
+    #         headers_cb=self._get_headers,
+    #         max_wait=url_params.max_wait_seconds,
+    #         timeout=url_params.timeout_seconds,
+    #     )
+    #     if avail_url:
+    #         LOG.debug("Using metadata source: '%s'", url2base[avail_url])
+    #     else:
+    #         LOG.debug(
+    #             "Giving up on Oracle md from %s after %s seconds",
+    #             md_urls,
+    #             int(time.time() - start_time),
+    #         )
+
+    #     self.metadata_address = url2base.get(avail_url)
+    #     LOG.debug("wait_for_metadata: Returned metadata address: %s", self.metadata_address)
+    #     return bool(avail_url)
+
+
     def _get_data(self):
 
         self.system_uuid = _read_system_uuid()
+        iface=net.find_fallback_nic(),
+        # Convert tuple to string
+        nic_name=''.join(iface)
+
 
         if self.perform_dhcp_setup:
             network_context = ephemeral.EphemeralDHCPv4(
-                self.distro,
-                iface=net.find_fallback_nic(),
+                distro=self.distro,
+                iface=nic_name,
                 connectivity_url_data={
                     "url": METADATA_PATTERN.format(version=2, path="instance"),
                     "headers": V2_HEADERS,
                 },
             )
+            # Setup IPv6 interface.
+            do_ipv6_interface_up(nic_name)
         else:
             network_context = util.nullcontext()
         fetch_primary_nic = not self._is_iscsi_root()
+        LOG.debug("[CPC-3194] is iSCSI root: %s", self._is_iscsi_root())
         fetch_secondary_nics = self.ds_cfg.get(
             "configure_secondary_nics",
             BUILTIN_DS_CONFIG["configure_secondary_nics"],
@@ -193,12 +271,13 @@ class DataSourceOracle(sources.DataSource):
                 fetch_vnics_data=fetch_primary_nic or fetch_secondary_nics,
                 max_wait=self.url_max_wait,
                 timeout=self.url_timeout,
+                metadata_pattern=IPV6_METADATA_PATTERN,
             )
         if not fetched_metadata:
             return False
 
         data = self._crawled_metadata = fetched_metadata.instance_data
-        self.metadata_address = METADATA_ROOT.format(
+        self.metadata_address = IPV6_METADATA_ROOT.format(
             version=fetched_metadata.version
         )
         self._vnics_data = fetched_metadata.vnics_data
@@ -317,6 +396,9 @@ class DataSourceOracle(sources.DataSource):
 
         vnics_data = self._vnics_data if set_primary else self._vnics_data[1:]
 
+        # If the metadata address is an IPv6 address
+        is_ipv6 =  _is_ipv6_metadata(self.metadata_address)
+
         for index, vnic_dict in enumerate(vnics_data):
             is_primary = set_primary and index == 0
             mac_address = vnic_dict["macAddr"].lower()
@@ -327,18 +409,29 @@ class DataSourceOracle(sources.DataSource):
                 )
                 continue
             name = interfaces_by_mac[mac_address]
-            network = ipaddress.ip_network(vnic_dict["subnetCidrBlock"])
+            if is_ipv6:
+                network = ipaddress.ip_network(vnic_dict["ipv6SubnetCidrBlock"])
+            else:
+                network = ipaddress.ip_network(vnic_dict["subnetCidrBlock"])
 
             if self._network_config["version"] == 1:
                 if is_primary:
                     subnet = {"type": "dhcp"}
                 else:
-                    subnet = {
-                        "type": "static",
-                        "address": (
-                            f"{vnic_dict['privateIp']}/{network.prefixlen}"
-                        ),
-                    }
+                    if is_ipv6:
+                        subnet = {
+                            "type": "static",
+                            "address": (
+                                f"{vnic_dict['ipv6Addresses'][0]}/{network.prefixlen}"
+                            ),
+                        }
+                    else:
+                        subnet = {
+                            "type": "static",
+                            "address": (
+                                f"{vnic_dict['privateIp']}/{network.prefixlen}"
+                            ),
+                        }
                 interface_config = {
                     "name": name,
                     "type": "physical",
@@ -353,18 +446,31 @@ class DataSourceOracle(sources.DataSource):
                 interface_config = {
                     "mtu": MTU,
                     "match": {"macaddress": mac_address},
-                    "dhcp6": False,
-                    "dhcp4": is_primary,
                 }
-                if not is_primary:
-                    interface_config["addresses"] = [
-                        f"{vnic_dict['privateIp']}/{network.prefixlen}"
-                    ]
                 self._network_config["ethernets"][name] = interface_config
-
+                if is_ipv6:
+                    interface_config["dhcp6"] = is_primary
+                    interface_config["dhcp4"] = False
+                    if not is_primary:
+                        interface_config["addresses"] = [
+                            f"{vnic_dict['ipv6Addresses'][0]}/{network.prefixlen}"
+                        ]
+                else:
+                    interface_config["dhcp6"] = False
+                    interface_config["dhcp4"] = is_primary
+                    if not is_primary:
+                        interface_config["addresses"] = [
+                            f"{vnic_dict['privateIp']}/{network.prefixlen}"
+                        ]
+                self._network_config["ethernets"][name] = interface_config
 
 class DataSourceOracleNet(DataSourceOracle):
     perform_dhcp_setup = False
+
+def _is_ipv6_metadata(metadata_address=IPV4_METADATA_ROOT):
+    if not metadata_address:
+        return False
+    return "fd00:c1::a9fe:a9fe" in str(metadata_address)
 
 
 def _read_system_uuid() -> Optional[str]:
@@ -390,6 +496,7 @@ def read_opc_metadata(
     fetch_vnics_data: bool = False,
     max_wait=DataSourceOracle.url_max_wait,
     timeout=DataSourceOracle.url_timeout,
+    metadata_pattern: str = METADATA_PATTERN,
 ) -> Optional[OpcMetadata]:
     """Fetch metadata from the /opc/ routes.
 
@@ -406,8 +513,8 @@ def read_opc_metadata(
     # an instance's lifetime where the IMDS is being updated and may 404 as a
     # result.
     urls = [
-        METADATA_PATTERN.format(version=2, path="instance"),
-        METADATA_PATTERN.format(version=1, path="instance"),
+        metadata_pattern.format(version=2, path="instance"),
+        metadata_pattern.format(version=1, path="instance"),
     ]
     start_time = time.monotonic()
     instance_url, instance_response = wait_for_url(
@@ -430,7 +537,7 @@ def read_opc_metadata(
         # but if we were able to retrieve instance metadata, that seems
         # like a worthwhile tradeoff rather than having incomplete metadata.
         vnics_url, vnics_response = wait_for_url(
-            [METADATA_PATTERN.format(version=metadata_version, path="vnics")],
+            [metadata_pattern.format(version=metadata_version, path="vnics")],
             max_wait=max_wait - (time.monotonic() - start_time),
             timeout=timeout,
             headers_cb=_headers_cb,
@@ -442,6 +549,16 @@ def read_opc_metadata(
             LOG.warning("Failed to fetch IMDS network configuration!")
     return OpcMetadata(metadata_version, instance_data, vnics_data)
 
+def do_ipv6_interface_up(iface):
+    """linux kernel does autoconfiguration even when autoconf=0
+
+    https://www.kernel.org/doc/html/latest/networking/ipv6.html
+    """
+    if net.read_sys_net(iface, "operstate") != "up":
+        subp.subp(
+            ["ip", "link", "set", "dev", iface, "up"],
+            capture=False,
+        )
 
 # Used to match classes to dependencies
 datasources = [
@@ -470,11 +587,24 @@ if __name__ == "__main__":
         the return values of the corresponding functions defined in
         DataSourceOracle.py."""
     parser = argparse.ArgumentParser(description=description)
+    # add ipv6 flag 
+    parser.add_argument(
+        "--ipv6",
+        action="store_true",
+        help="Use IPv6 metadata URL",
+    )
     parser.parse_args()
+
+    ipv6_enabled = parser.ipv6
+
     print(
         atomic_helper.json_dumps(
             {
-                "read_opc_metadata": read_opc_metadata(),
+                "read_opc_metadata": read_opc_metadata(
+                    metadata_pattern=(
+                        IPV6_METADATA_PATTERN if ipv6_enabled else METADATA_PATTERN
+                    )
+                ),
                 "_is_platform_viable": _is_platform_viable(),
             }
         )

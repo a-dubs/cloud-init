@@ -282,6 +282,7 @@ class EphemeralDHCPv4:
         distro,
         iface=None,
         connectivity_url_data: Optional[Dict[str, Any]] = None,
+        connectivity_urls: Optional[List[Dict[str, Any]]] = None,
         dhcp_log_func=None,
     ):
         self.iface = iface
@@ -289,18 +290,23 @@ class EphemeralDHCPv4:
         self.lease: Optional[Dict[str, Any]] = None
         self.dhcp_log_func = dhcp_log_func
         self.connectivity_url_data = connectivity_url_data
+        self.connectivity_urls = connectivity_urls
         self.distro = distro
         self.interface_addrs_before_dhcp = netinfo.netdev_info()
 
     def __enter__(self):
         """Setup sandboxed dhcp context, unless connectivity_url can already be
         reached."""
+        # combine the connectivity_url_data and connectivity_urls into a single list
+        urls_data = self.connectivity_urls or []
         if self.connectivity_url_data:
-            if net.has_url_connectivity(self.connectivity_url_data):
+            urls_data.append(self.connectivity_url_data)
+        for url_data in urls_data:
+            if net.has_url_connectivity(url_data):
                 LOG.debug(
                     "Skip ephemeral DHCP setup, instance has connectivity"
                     " to %s",
-                    self.connectivity_url_data,
+                    url_data,
                 )
                 return
         return self.obtain_lease()
