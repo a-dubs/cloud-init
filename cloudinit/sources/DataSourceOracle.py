@@ -179,10 +179,18 @@ class DataSourceOracle(sources.DataSource):
         connected = []
         for url in metadata_urls:
             # sort metadata versions in descending order so that we can try the latest version first
+            metadata_versions.sort(reverse=True)
             for metadata_version in metadata_versions:
                 LOG.debug("[CPC-3194] Checking connectivity to %s", url.format(version=metadata_version))
                 chk_url = url.format(version=metadata_version)
-                if util.is_resolvable_url(chk_url):
+                # if util.is_resolvable_url(chk_url):
+                instance_url, instance_response = wait_for_url(
+                    [chk_url],
+                    max_wait=0, # dont retry
+                    timeout=1,
+                    headers_cb=_headers_cb,
+                )
+                if instance_url:
                     LOG.debug("[CPC-3194] Connectivity to %s successful", chk_url)
                     connected.append(url)
                     break
@@ -562,7 +570,7 @@ def read_opc_metadata(
         max_wait=max_wait,
         timeout=timeout,
         headers_cb=_headers_cb,
-        sleep_time=0,
+        sleep_time=5,
     )
     if not instance_url:
         LOG.warning("Failed to fetch IMDS metadata!")
@@ -582,7 +590,7 @@ def read_opc_metadata(
             max_wait=max_wait - (time.monotonic() - start_time),
             timeout=timeout,
             headers_cb=_headers_cb,
-            sleep_time=0,
+            sleep_time=5,
         )
         if vnics_url:
             vnics_data = json.loads(vnics_response.decode("utf-8"))
