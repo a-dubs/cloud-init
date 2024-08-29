@@ -276,7 +276,7 @@ class DataSourceOracle(sources.DataSource):
             try:
                 network_context = ephemeral.EphemeralIPNetwork(
                     distro=self.distro,
-                    iface=nic_name,
+                    interface=nic_name,
                     # hard code to ipv6 for now
                     ipv6=True,   
                     ipv4=False, 
