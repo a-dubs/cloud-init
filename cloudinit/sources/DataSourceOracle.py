@@ -245,7 +245,7 @@ class DataSourceOracle(sources.DataSource):
         # Convert tuple to string
         nic_name=''.join(iface)
 
-        self.log("[CPC-3194] Oracle datasource: Various debug logging")
+        LOG.debug("[CPC-3194] Oracle datasource: Various debug logging")
         log_iface()
         log_primary_ip()
 
