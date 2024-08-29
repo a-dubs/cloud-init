@@ -129,6 +129,7 @@ class DataSourceOracle(sources.DataSource):
         sources.NetworkConfigSource.INITRAMFS,
     )
 
+    # for init-local stage, we want to bring up an ephemeral network
     perform_dhcp_setup = True
 
     # Careful...these can be overridden in __init__
@@ -174,17 +175,19 @@ class DataSourceOracle(sources.DataSource):
         return _is_platform_viable()
 
 
-    # def check_connectivity(self, metadata_version=2):
-    #     connected = []
-    #     urls = self.ds_cfg.get("metadata_urls", METADATA_URLS)
-    #     for url in urls:
-    #        chk_url = url.format(version=metadata_version)
-    #        if util.is_resolvable_url(chk_url):
-    #           connected.append(url)
+    def check_connectivity(self, metadata_urls, metadata_versions) -> list[str]:
+        connected = []
+        for url in metadata_urls:
+            # sort metadata versions in descending order so that we can try the latest version first
+            for metadata_version in metadata_versions:
+                LOG.debug("[CPC-3194] Checking connectivity to %s", url.format(version=metadata_version))
+                chk_url = url.format(version=metadata_version)
+                if util.is_resolvable_url(chk_url):
+                    LOG.debug("[CPC-3194] Connectivity to %s successful", chk_url)
+                    connected.append(url)
+                    break
 
-    #     if (len(connected)):
-    #        return(connected)
-    #     return(None)
+        return connected
 
 
     # def wait_for_metadata_service(self, nic, valid_urls, metadata_version):
@@ -250,23 +253,32 @@ class DataSourceOracle(sources.DataSource):
         log_primary_ip()
 
 
-        if self.perform_dhcp_setup and self._is_iscsi_root():
+        available_urls = self.check_connectivity(METADATA_URLS, [1, 2])
+
+        # is_ipv6 = any([_is_ipv6_metadata_url(url) for url in available_urls])
+        # is_ipv4 = any([_is_ipv4_metadata_url(url) for url in available_urls])
+
+        # if we have connectivity to imds, then skip ephemeral network setup
+        if self.perform_dhcp_setup and not available_urls:
             # TODO: ask james: this obviously fails on ipv6 single stack only
             # is there a way to detect when we need this?
             # would this only work/be needed if isci is being used? 
             # if so, could we just check for iscsi root and then do this?
-            LOG.debug("[CPC-3194] Performing DHCPv4 setup and trying to contact ipv4 imds")
-            network_context = ephemeral.EphemeralDHCPv4(
-                distro=self.distro,
-                iface=nic_name,
-                connectivity_url_data={
-                    "url": IPV4_METADATA_PATTERN.format(version=2, path="instance"),
-                    "headers": V2_HEADERS,
-                },
-            )
-            # Setup IPv6 interface.
-            do_ipv6_interface_up(nic_name)
+            LOG.debug("[CPC-3194] Performing ephemeral ipv6 network setup")
+            try:
+                network_context = ephemeral.EphemeralIPNetwork(
+                    distro=self.distro,
+                    iface=nic_name,
+                    # hard code to ipv6 for now
+                    ipv6=True,   
+                    ipv4=False, 
+                )
+            except Exception as e:
+                LOG.debug("[CPC-3194] Failed to perform DHCPv4 setup: %s", e)
+                network_context = util.nullcontext()
         else:
+            if available_urls:
+                LOG.debug("[CPC-3194] Connectivity to imds, skipping ephemeral network setup")
             network_context = util.nullcontext()
         fetch_primary_nic = not self._is_iscsi_root()
         LOG.debug("[CPC-3194] is iSCSI root: %s", self._is_iscsi_root())
@@ -380,7 +392,7 @@ class DataSourceOracle(sources.DataSource):
 
         :param set_primary: If True set primary interface.
         :raises:
-            Exceptions are not handled within this function.  Likely
+        Exceptions are not handled within this function.  Likely
             exceptions are KeyError/IndexError
             (if the IMDS returns valid JSON with unexpected contents).
         """
@@ -407,7 +419,7 @@ class DataSourceOracle(sources.DataSource):
         vnics_data = self._vnics_data if set_primary else self._vnics_data[1:]
 
         # If the metadata address is an IPv6 address
-        is_ipv6 =  _is_ipv6_metadata(self.metadata_address)
+        is_ipv6 =  _is_ipv6_metadata_url(self.metadata_address)
 
         for index, vnic_dict in enumerate(vnics_data):
             is_primary = set_primary and index == 0
@@ -477,10 +489,15 @@ class DataSourceOracle(sources.DataSource):
 class DataSourceOracleNet(DataSourceOracle):
     perform_dhcp_setup = False
 
-def _is_ipv6_metadata(metadata_address=IPV4_METADATA_ROOT):
+def _is_ipv4_metadata_url(metadata_address: str):
     if not metadata_address:
         return False
-    return "fd00:c1::a9fe:a9fe" in str(metadata_address)
+    return metadata_address.startswith(IPV4_METADATA_ROOT.split("opc")[0])
+
+def _is_ipv6_metadata_url(metadata_address: str):
+    if not metadata_address:
+        return False
+    return metadata_address.startswith(IPV6_METADATA_ROOT.split("opc")[0])
 
 
 def _read_system_uuid() -> Optional[str]:
