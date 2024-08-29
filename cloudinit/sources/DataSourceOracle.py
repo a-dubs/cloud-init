@@ -40,7 +40,7 @@ BUILTIN_DS_CONFIG = {
 CHASSIS_ASSET_TAG = "OracleCloud.com"
 IPV4_METADATA_ROOT = "http://169.254.169.254/opc/v{version}/"
 IPV6_METADATA_ROOT = "http://[fd00:c1::a9fe:a9fe]/opc/v{version}/"
-METADATA_PATTERN = IPV4_METADATA_ROOT + "{path}/"
+IPV4_METADATA_PATTERN = IPV4_METADATA_ROOT + "{path}/"
 IPV6_METADATA_PATTERN = IPV6_METADATA_ROOT + "{path}/"
 METADATA_URLS = [
     IPV4_METADATA_ROOT,
@@ -245,13 +245,22 @@ class DataSourceOracle(sources.DataSource):
         # Convert tuple to string
         nic_name=''.join(iface)
 
+        self.log("[CPC-3194] Oracle datasource: Various debug logging")
+        log_iface()
+        log_primary_ip()
 
-        if self.perform_dhcp_setup:
+
+        if self.perform_dhcp_setup and self._is_iscsi_root():
+            # TODO: ask james: this obviously fails on ipv6 single stack only
+            # is there a way to detect when we need this?
+            # would this only work/be needed if isci is being used? 
+            # if so, could we just check for iscsi root and then do this?
+            LOG.debug("[CPC-3194] Performing DHCPv4 setup and trying to contact ipv4 imds")
             network_context = ephemeral.EphemeralDHCPv4(
                 distro=self.distro,
                 iface=nic_name,
                 connectivity_url_data={
-                    "url": METADATA_PATTERN.format(version=2, path="instance"),
+                    "url": IPV4_METADATA_PATTERN.format(version=2, path="instance"),
                     "headers": V2_HEADERS,
                 },
             )
@@ -267,6 +276,7 @@ class DataSourceOracle(sources.DataSource):
         )
 
         with network_context:
+            LOG.debug("[CPC-3194] Fetching metadata (read_opc_metadata)")
             fetched_metadata = read_opc_metadata(
                 fetch_vnics_data=fetch_primary_nic or fetch_secondary_nics,
                 max_wait=self.url_max_wait,
@@ -484,19 +494,27 @@ def _is_platform_viable() -> bool:
 
 
 def _url_version(url: str) -> int:
-    return 2 if url.startswith("http://169.254.169.254/opc/v2") else 1
+    return 2 if "/opc/v2/" in url else 1
 
 
 def _headers_cb(url: str) -> Optional[Dict[str, str]]:
     return V2_HEADERS if _url_version(url) == 2 else None
 
 
+def log_iface():
+    result = subp.subp(["ip", "link", "show"], capture=True)
+    LOG.debug("ip link show:\n%s", result)
+
+def log_primary_ip():
+    result = subp.subp(["ip", "addr", "show"], capture=True)
+    LOG.debug("ip addr show:\n%s", result)
+
 def read_opc_metadata(
     *,
     fetch_vnics_data: bool = False,
     max_wait=DataSourceOracle.url_max_wait,
     timeout=DataSourceOracle.url_timeout,
-    metadata_pattern: str = METADATA_PATTERN,
+    metadata_pattern: str = IPV4_METADATA_PATTERN,
 ) -> Optional[OpcMetadata]:
     """Fetch metadata from the /opc/ routes.
 
@@ -512,6 +530,11 @@ def read_opc_metadata(
     # Per Oracle, there are short windows (measured in milliseconds) throughout
     # an instance's lifetime where the IMDS is being updated and may 404 as a
     # result.
+    # TODO: why does v2 fail here? it works manually with curl
+    # $ curl -f -g -6 -H "Authorization: Bearer Oracle" -H "User-Agent: Cloud-Init/23.4-610-g63572bb4-1~bddeb"
+    # 'http://[fd00:c1::a9fe:a9fe]/opc/v2/instance/'
+    # the user agent is the same as the one used in the code and it succeeds when 
+    # curling manually with or without the user agent
     urls = [
         metadata_pattern.format(version=2, path="instance"),
         metadata_pattern.format(version=1, path="instance"),
@@ -529,6 +552,7 @@ def read_opc_metadata(
         return None
     instance_data = json.loads(instance_response.decode("utf-8"))
 
+    # save whichever version we got the instance data from for vnics data later
     metadata_version = _url_version(instance_url)
 
     vnics_data = None
@@ -602,7 +626,7 @@ if __name__ == "__main__":
             {
                 "read_opc_metadata": read_opc_metadata(
                     metadata_pattern=(
-                        IPV6_METADATA_PATTERN if ipv6_enabled else METADATA_PATTERN
+                        IPV6_METADATA_PATTERN if ipv6_enabled else IPV4_METADATA_PATTERN
                     )
                 ),
                 "_is_platform_viable": _is_platform_viable(),
