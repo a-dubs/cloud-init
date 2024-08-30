@@ -279,7 +279,7 @@ class DataSourceOracle(sources.DataSource):
                     interface=nic_name,
                     # hard code to ipv6 for now
                     ipv6=True,   
-                    ipv4=False, 
+                    ipv4=True, 
                 )
             except Exception as e:
                 LOG.debug("[CPC-3194] Failed to perform DHCPv4 setup: %s", e)
