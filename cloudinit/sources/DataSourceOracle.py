@@ -46,6 +46,11 @@ METADATA_URLS = [
     IPV4_METADATA_ROOT,
     IPV6_METADATA_ROOT,
 ]
+METADATA_ROOTS = [
+    IPV4_METADATA_ROOT,
+    IPV6_METADATA_ROOT,
+]
+
 # https://docs.cloud.oracle.com/iaas/Content/Network/Troubleshoot/connectionhang.htm#Overview,
 # indicates that an MTU of 9000 is used within OCI
 MTU = 9000
@@ -261,32 +266,38 @@ class DataSourceOracle(sources.DataSource):
         log_primary_ip()
 
 
-        available_urls = self.check_connectivity(METADATA_URLS, [1, 2])
+        # available_urls = self.check_connectivity(METADATA_URLS, [1, 2])
+        connectivity_urls = [
+            {"url": IPV4_METADATA_ROOT.format(version=version)} for version in [1, 2]
+        ]
+
+        LOG.debug("[CPC-3194] Connectivity URLs: %s", connectivity_urls)
 
         # is_ipv6 = any([_is_ipv6_metadata_url(url) for url in available_urls])
         # is_ipv4 = any([_is_ipv4_metadata_url(url) for url in available_urls])
 
         # if we have connectivity to imds, then skip ephemeral network setup
-        if self.perform_dhcp_setup and not available_urls:
+        if self.perform_dhcp_setup: # and not available_urls:
             # TODO: ask james: this obviously fails on ipv6 single stack only
             # is there a way to detect when we need this?
             # would this only work/be needed if isci is being used? 
             # if so, could we just check for iscsi root and then do this?
-            LOG.debug("[CPC-3194] Performing ephemeral ipv6 network setup")
+            LOG.debug("[CPC-3194] Performing ephemeral network setup")
             try:
+                # TODO: add connectivty url pass through and implement in EphemeralIPNetwork by passing to dhcpv4 boi
                 network_context = ephemeral.EphemeralIPNetwork(
                     distro=self.distro,
                     interface=nic_name,
-                    # hard code to ipv6 for now
                     ipv6=True,   
                     ipv4=True, 
+                    connectivity_urls=connectivity_urls,
                 )
             except Exception as e:
                 LOG.debug("[CPC-3194] Failed to perform DHCPv4 setup: %s", e)
                 network_context = util.nullcontext()
         else:
-            if available_urls:
-                LOG.debug("[CPC-3194] Connectivity to imds, skipping ephemeral network setup")
+            # if available_urls:
+            #     LOG.debug("[CPC-3194] Connectivity to imds, skipping ephemeral network setup")
             network_context = util.nullcontext()
         fetch_primary_nic = not self._is_iscsi_root()
         LOG.debug("[CPC-3194] is iSCSI root: %s", self._is_iscsi_root())
@@ -297,19 +308,29 @@ class DataSourceOracle(sources.DataSource):
 
         with network_context:
             LOG.debug("[CPC-3194] Fetching metadata (read_opc_metadata)")
-            fetched_metadata = read_opc_metadata(
+            fetched_metadata, url_that_worked = read_opc_metadata(
                 fetch_vnics_data=fetch_primary_nic or fetch_secondary_nics,
                 max_wait=self.url_max_wait,
                 timeout=self.url_timeout,
-                metadata_pattern=IPV6_METADATA_PATTERN,
+                metadata_patterns=[IPV6_METADATA_PATTERN, IPV4_METADATA_PATTERN],
             )
+            # set the metadata root address that worked to allow for detecting
+            # whether ipv4 or ipv6 was used for getting metadata
+            if _is_ipv4_metadata_url(url_that_worked):
+                self.metadata_address = IPV4_METADATA_ROOT.format(
+                    version=fetched_metadata.version
+                )
+                LOG.debug("[CPC-3194] Read metadata from IPv4 URL: %s", self.metadata_address)
+            else:
+                self.metadata_address = IPV6_METADATA_ROOT.format(
+                    version=fetched_metadata.version
+                )
+                LOG.debug("[CPC-3194] Read metadata from IPv6 URL: %s", self.metadata_address)
+        
         if not fetched_metadata:
             return False
 
         data = self._crawled_metadata = fetched_metadata.instance_data
-        self.metadata_address = IPV6_METADATA_ROOT.format(
-            version=fetched_metadata.version
-        )
         self._vnics_data = fetched_metadata.vnics_data
 
         self.metadata = {
@@ -357,6 +378,7 @@ class DataSourceOracle(sources.DataSource):
 
         If none is present, then we fall back to fallback configuration.
         """
+        LOG.debug("[CPC-3194] Oracle datasource: network_config() called")
         if self._has_network_config():
             return self._network_config
 
@@ -539,18 +561,21 @@ def read_opc_metadata(
     fetch_vnics_data: bool = False,
     max_wait=DataSourceOracle.url_max_wait,
     timeout=DataSourceOracle.url_timeout,
-    metadata_pattern: str = IPV4_METADATA_PATTERN,
-) -> Optional[OpcMetadata]:
+    metadata_patterns: list[str] = IPV4_METADATA_PATTERN,
+) -> tuple[Optional[OpcMetadata], Optional[str]]:
     """Fetch metadata from the /opc/ routes.
 
     :return:
-        A namedtuple containing:
-          The metadata version as an integer
-          The JSON-decoded value of the instance data endpoint on the IMDS
-          The JSON-decoded value of the vnics data endpoint if
-            `fetch_vnics_data` is True, else None
-        or None if fetching metadata failed
-
+        A tuple containing:
+            - A namedtuple containing:
+                The metadata version as an integer
+                The JSON-decoded value of the instance data endpoint on the IMDS
+                The JSON-decoded value of the vnics data endpoint if
+                    `fetch_vnics_data` is True, else None
+                or None if fetching metadata failed
+            - The metadata pattern url that was used to fetch the metadata. This
+                gives info about whether v1 or v2 was used and whether it was
+                an IPv4 or IPv6 address.
     """
     # Per Oracle, there are short windows (measured in milliseconds) throughout
     # an instance's lifetime where the IMDS is being updated and may 404 as a
@@ -561,9 +586,11 @@ def read_opc_metadata(
     # the user agent is the same as the one used in the code and it succeeds when 
     # curling manually with or without the user agent
     urls = [
-        metadata_pattern.format(version=2, path="instance"),
-        metadata_pattern.format(version=1, path="instance"),
+        metadata_pattern.format(version=version, path="instance") 
+        for version in [1, 2] 
+        for metadata_pattern in metadata_patterns
     ]
+    LOG.debug("[CPC-3194] Attempting to fetch IMDS metadata from: %s", urls)
     start_time = time.monotonic()
     instance_url, instance_response = wait_for_url(
         urls,
@@ -579,6 +606,9 @@ def read_opc_metadata(
 
     # save whichever version we got the instance data from for vnics data later
     metadata_version = _url_version(instance_url)
+    metadata_pattern = IPV4_METADATA_PATTERN if _is_ipv4_metadata_url(instance_url) else IPV6_METADATA_PATTERN
+
+    LOG.debug("[CPC-3194] Fetching vnics data using metadata pattern: %s and version: %s", metadata_pattern, metadata_version)
 
     vnics_data = None
     if fetch_vnics_data:
@@ -591,23 +621,16 @@ def read_opc_metadata(
             timeout=timeout,
             headers_cb=_headers_cb,
             sleep_time=5,
+            connect_synchronously=False,
         )
         if vnics_url:
             vnics_data = json.loads(vnics_response.decode("utf-8"))
         else:
             LOG.warning("Failed to fetch IMDS network configuration!")
-    return OpcMetadata(metadata_version, instance_data, vnics_data)
-
-def do_ipv6_interface_up(iface):
-    """linux kernel does autoconfiguration even when autoconf=0
-
-    https://www.kernel.org/doc/html/latest/networking/ipv6.html
-    """
-    if net.read_sys_net(iface, "operstate") != "up":
-        subp.subp(
-            ["ip", "link", "set", "dev", iface, "up"],
-            capture=False,
-        )
+    return (
+        OpcMetadata(metadata_version, instance_data, vnics_data), 
+        metadata_pattern,
+    )
 
 # Used to match classes to dependencies
 datasources = [

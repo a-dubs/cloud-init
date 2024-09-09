@@ -281,6 +281,7 @@ class EphemeralDHCPv4:
         self,
         distro,
         iface=None,
+        #TODO: combine these. keeping connectivity_url_data for backwards compatibility
         connectivity_url_data: Optional[Dict[str, Any]] = None,
         connectivity_urls: Optional[List[Dict[str, Any]]] = None,
         dhcp_log_func=None,
@@ -410,6 +411,7 @@ class EphemeralIPNetwork:
         interface,
         ipv6: bool = False,
         ipv4: bool = True,
+        connectivity_urls: Optional[List[Dict[str, Any]]] = None,
     ):
         self.interface = interface
         self.ipv4 = ipv4
@@ -417,6 +419,7 @@ class EphemeralIPNetwork:
         self.stack = contextlib.ExitStack()
         self.state_msg: str = ""
         self.distro = distro
+        self.connectivity_urls = connectivity_urls
 
     def __enter__(self):
         if not (self.ipv4 or self.ipv6):
@@ -429,8 +432,9 @@ class EphemeralIPNetwork:
             try:
                 self.stack.enter_context(
                     EphemeralDHCPv4(
-                        self.distro,
-                        self.interface,
+                        distro=self.distro,
+                        iface=self.interface,
+                        connectivity_urls=self.connectivity_urls,
                     )
                 )
                 ephemeral_obtained = True
