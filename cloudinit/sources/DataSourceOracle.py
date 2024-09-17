@@ -164,7 +164,7 @@ class DataSourceOracle(sources.DataSource):
 
     @staticmethod
     def ds_detect() -> bool:
-        """Check platform environment to report if this datasource may run."""
+        # removed docstring to test github action
         return _is_platform_viable()
 
     def _get_data(self):
