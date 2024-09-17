@@ -366,7 +366,7 @@ class TestIsPlatformViable:
     def test_expected_viable(
         self, m_exists, m_lstat, exists, lstat_mode, expected
     ):
-        """Return True only when LXD_SOCKET_PATH exists and is a socket."""
+        # Removed docstring to test github action
         m_exists.return_value = exists
         m_lstat.return_value = LStatResponse(lstat_mode)
         assert expected is lxd.is_platform_viable()
