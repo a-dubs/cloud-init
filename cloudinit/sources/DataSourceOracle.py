@@ -367,7 +367,7 @@ class DataSourceOracleNet(DataSourceOracle):
     perform_dhcp_setup = False
 
 
-def _read_system_uuid() -> Optional[str]:
+def _read_system_uuid():  # removed return typehint to test github action
     sys_uuid = dmi.read_dmi_data("system-uuid")
     return None if sys_uuid is None else sys_uuid.lower()
 
@@ -377,7 +377,7 @@ def _is_platform_viable() -> bool:
     return asset_tag == CHASSIS_ASSET_TAG
 
 
-def _url_version(url: str) -> int:
+def _url_version(url) -> int:  # removed arg typehint to test github action
     return 2 if url.startswith("http://169.254.169.254/opc/v2") else 1
 
 
