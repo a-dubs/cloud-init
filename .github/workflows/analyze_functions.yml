@@ -5,6 +5,9 @@ on:
   pull_request:
     branches:
       - main
+      # TODO: revert me before actually merging into canonical/main
+      # this is only for testing out the CI action in various test PRs
+      - github-action-for-analyzing-functions
 
 jobs:
   check_documentation_and_type_hints:
