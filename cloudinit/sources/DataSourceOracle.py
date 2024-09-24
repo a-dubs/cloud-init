@@ -307,12 +307,17 @@ class DataSourceOracle(sources.DataSource):
             # if so, could we just check for iscsi root and then do this?
             LOG.debug("[CPC-3194] Performing ephemeral network setup")
             try:
-                # TODO: add connectivty url pass through and implement in EphemeralIPNetwork by passing to dhcpv4 boi
+                ipv4_enabled = True
+                if str(self.distro.name).lower() == "ubuntu":
+                    LOG.debug("[CPC-3194] Ubuntu detected!")
+                    if not ipv4_routes_enabled:
+                        LOG.debug("[CPC-3194] IPv4 routes not enabled, disabling IPv4")
+                        ipv4_enabled = False
                 network_context = ephemeral.EphemeralIPNetwork(
                     distro=self.distro,
                     interface=nic_name,
                     ipv6=True,   
-                    ipv4=True, 
+                    ipv4=ipv4_enabled, 
                     connectivity_urls=ipv4_connectivity_urls,
                 )
             except Exception as e:
