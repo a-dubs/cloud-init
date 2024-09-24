@@ -139,13 +139,19 @@ def oracle_ds(request, fixture_utils, paths, metadata_version, mocker):
     is_iscsi = fixture_utils.closest_marker_first_arg_or(
         request, "is_iscsi", True
     )
-    metadata = OpcMetadata(metadata_version, json.loads(OPC_V2_METADATA), None)
+    use_ipv6 = fixture_utils.closest_marker_first_arg_or(
+        request, "use_ipv6", False
+    )
 
-    mocker.patch(DS_PATH + ".net.find_fallback_nic")
+    metadata = OpcMetadata(metadata_version, json.loads(OPC_V2_METADATA), None)
+    md_url_pattern = oracle.IPV6_METADATA_PATTERN if use_ipv6 else oracle.IPV4_METADATA_PATTERN
+
+    mocker.patch(DS_PATH + ".net.find_fallback_nic", return_value="fake_eth0")
     mocker.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
+    mocker.patch(DS_PATH + ".ephemeral.EphemeralIPNetwork")
     mocker.patch(DS_PATH + "._read_system_uuid", return_value="someuuid")
     mocker.patch(DS_PATH + ".DataSourceOracle.ds_detect", return_value=True)
-    mocker.patch(DS_PATH + ".read_opc_metadata", return_value=metadata)
+    mocker.patch(DS_PATH + ".read_opc_metadata", return_value=(metadata, md_url_pattern))
     mocker.patch(DS_PATH + ".KlibcOracleNetworkConfigSource")
     ds = oracle.DataSourceOracle(
         sys_cfg=sys_cfg,
@@ -934,10 +940,10 @@ class TestCommon_GetDataBehaviour:
 
 @pytest.mark.is_iscsi(False)
 class TestNonIscsiRoot_GetDataBehaviour:
-    @mock.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
-    @mock.patch(DS_PATH + ".net.find_fallback_nic")
+    @mock.patch(DS_PATH + ".ephemeral.EphemeralIPNetwork")
+    @mock.patch(DS_PATH + ".net.find_fallback_nic", return_value="fake_eth0")
     def test_run_net_files(
-        self, m_find_fallback_nic, m_EphemeralDHCPv4, oracle_ds
+        self, m_find_fallback_nic, m_ephemeral_network, oracle_ds
     ):
         in_context_manager = False
 
@@ -949,10 +955,10 @@ class TestNonIscsiRoot_GetDataBehaviour:
             nonlocal in_context_manager
             in_context_manager = False
 
-        m_EphemeralDHCPv4.return_value.__enter__.side_effect = (
+        m_ephemeral_network.return_value.__enter__.side_effect = (
             enter_context_manager
         )
-        m_EphemeralDHCPv4.return_value.__exit__.side_effect = (
+        m_ephemeral_network.return_value.__exit__.side_effect = (
             exit_context_manager
         )
 
@@ -966,16 +972,27 @@ class TestNonIscsiRoot_GetDataBehaviour:
         ):
             assert oracle_ds._check_and_get_data()
 
+    # distro=self.distro,
+    #                 interface=nic_name,
+    #                 ipv6=True,   
+    #                 ipv4=True, 
+    #                 connectivity_urls=connectivity_urls,
         assert [
             mock.call(
                 oracle_ds.distro,
-                iface=m_find_fallback_nic.return_value,
-                connectivity_url_data={
+                interface=m_find_fallback_nic.return_value,
+                ipv6=True,
+                ipv4=True,
+                connectivity_urls=[{
                     "headers": {"Authorization": "Bearer Oracle"},
-                    "url": "http://169.254.169.254/opc/v2/instance/",
-                },
+                    "url": oracle.IPV4_METADATA_ROOT.format(version=1),
+                }, 
+                {
+                    "headers": {"Authorization": "Bearer Oracle"},
+                    "url": oracle.IPV4_METADATA_ROOT.format(version=1),
+                }],
             )
-        ] == m_EphemeralDHCPv4.call_args_list
+        ] == m_ephemeral_network.call_args_list
 
     @mock.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
     @mock.patch(DS_PATH + ".net.find_fallback_nic")

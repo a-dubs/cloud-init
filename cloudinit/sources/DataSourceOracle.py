@@ -19,7 +19,7 @@ import json
 import logging
 import time
 from collections import namedtuple
-from typing import Dict, Optional, Tuple
+from typing import Dict, Literal, Optional, Tuple
 
 from cloudinit import atomic_helper, dmi, net, sources, subp, util
 from cloudinit.distros.networking import NetworkConfig
@@ -122,6 +122,20 @@ def _ensure_netfailover_safe(network_config: NetworkConfig) -> None:
                         del cfg["set-name"]
                         cfg["match"]["name"] = cur_name
 
+def ip_routes_enabled(ipv: Literal["ipv4", "ipv6"] = "ipv4") -> bool:
+    """Check if the IP routes are enabled for the given IP version.
+
+    :param ipv: The IP version to check for. Default is 'ipv4'.
+    :return: True if the IP routes are enabled, False otherwise.
+    """
+    # run `ip route show` or `ip -6 route show` to check if the routes are enabled
+    if ipv == "ipv4":
+        result = subp.subp(["ip", "route", "show"], capture=True).stdout
+
+    else:
+        result = subp.subp(["ip", "-6", "route", "show"], capture=True).stdout
+
+    return len(result.strip()) > 0
 
 class DataSourceOracle(sources.DataSource):
 
@@ -262,16 +276,25 @@ class DataSourceOracle(sources.DataSource):
         nic_name=''.join(iface)
 
         LOG.debug("[CPC-3194] Oracle datasource: Various debug logging")
-        log_iface()
-        log_primary_ip()
+        # log_iface()
+        # log_primary_ip()
+
+
+        # test routes for both ipv4 and ipv6 and log to console
+        ipv4_routes_enabled = ip_routes_enabled("ipv4")
+        ipv6_routes_enabled = ip_routes_enabled("ipv6")
+        LOG.debug("[CPC-3194] IPv4 routes enabled: %s", ipv4_routes_enabled)
+        LOG.debug("[CPC-3194] IPv6 routes enabled: %s", ipv6_routes_enabled)
 
 
         # available_urls = self.check_connectivity(METADATA_URLS, [1, 2])
-        connectivity_urls = [
+        ipv4_connectivity_urls = [
             {"url": IPV4_METADATA_ROOT.format(version=version)} for version in [1, 2]
         ]
 
-        LOG.debug("[CPC-3194] Connectivity URLs: %s", connectivity_urls)
+        LOG.debug("[CPC-3194] IPv4 Connectivity URLs for Ephemeral Network to check: %s", ipv4_connectivity_urls)
+
+        
 
         # is_ipv6 = any([_is_ipv6_metadata_url(url) for url in available_urls])
         # is_ipv4 = any([_is_ipv4_metadata_url(url) for url in available_urls])
@@ -290,7 +313,7 @@ class DataSourceOracle(sources.DataSource):
                     interface=nic_name,
                     ipv6=True,   
                     ipv4=True, 
-                    connectivity_urls=connectivity_urls,
+                    connectivity_urls=ipv4_connectivity_urls,
                 )
             except Exception as e:
                 LOG.debug("[CPC-3194] Failed to perform DHCPv4 setup: %s", e)
