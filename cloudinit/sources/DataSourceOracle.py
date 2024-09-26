@@ -589,7 +589,7 @@ def read_opc_metadata(
     fetch_vnics_data: bool = False,
     max_wait=DataSourceOracle.url_max_wait,
     timeout=DataSourceOracle.url_timeout,
-    metadata_patterns: list[str] = IPV4_METADATA_PATTERN,
+    metadata_patterns: list[str] = [IPV4_METADATA_PATTERN],
 ) -> tuple[Optional[OpcMetadata], Optional[str]]:
     """Fetch metadata from the /opc/ routes.
 
@@ -615,7 +615,7 @@ def read_opc_metadata(
     # curling manually with or without the user agent
     urls = [
         metadata_pattern.format(version=version, path="instance") 
-        for version in [1, 2] 
+        for version in [2, 1] 
         for metadata_pattern in metadata_patterns
     ]
     LOG.debug("[CPC-3194] Attempting to fetch IMDS metadata from: %s", urls)
