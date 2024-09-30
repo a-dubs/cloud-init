@@ -291,6 +291,9 @@ class DataSourceOracle(sources.DataSource):
         ipv4_connectivity_urls = [
             {"url": IPV4_METADATA_ROOT.format(version=version)} for version in [1, 2]
         ]
+        ipv4_connectivity_url_data = {
+            "url": IPV4_METADATA_PATTERN.format(version=1, path="instance"),
+        }
 
         LOG.debug("[CPC-3194] IPv4 Connectivity URLs for Ephemeral Network to check: %s", ipv4_connectivity_urls)
 
@@ -307,18 +310,23 @@ class DataSourceOracle(sources.DataSource):
             # if so, could we just check for iscsi root and then do this?
             LOG.debug("[CPC-3194] Performing ephemeral network setup")
             try:
-                ipv4_enabled = True
-                if str(self.distro.name).lower() == "ubuntu":
-                    LOG.debug("[CPC-3194] Ubuntu detected!")
-                    if not ipv4_routes_enabled:
-                        LOG.debug("[CPC-3194] IPv4 routes not enabled, disabling IPv4")
-                        ipv4_enabled = False
+                # ipv4_enabled = True
+                # if str(self.distro.name).lower() == "ubuntu":
+                #     LOG.debug("[CPC-3194] Ubuntu detected!")
+                #     if not ipv4_routes_enabled:
+                #         LOG.debug("[CPC-3194] IPv4 routes not enabled, disabling IPv4")
+                #         ipv4_enabled = False
+                ipv6_url_data = {
+                    "url": IPV6_METADATA_PATTERN.format(version=1, path="instance"),
+                }
                 network_context = ephemeral.EphemeralIPNetwork(
                     distro=self.distro,
                     interface=nic_name,
                     ipv6=True,   
-                    ipv4=ipv4_enabled, 
-                    connectivity_urls=ipv4_connectivity_urls,
+                    ipv4=True, 
+                    connectivity_url_data=ipv4_connectivity_url_data,
+                    prefer_ipv6=True,
+                    ipv6_imds_endpoint_url_data=ipv6_url_data,
                 )
             except Exception as e:
                 LOG.debug("[CPC-3194] Failed to perform DHCPv4 setup: %s", e)
@@ -332,7 +340,7 @@ class DataSourceOracle(sources.DataSource):
         fetch_secondary_nics = self.ds_cfg.get(
             "configure_secondary_nics",
             BUILTIN_DS_CONFIG["configure_secondary_nics"],
-        )
+    )
 
         with network_context:
             LOG.debug("[CPC-3194] Fetching metadata (read_opc_metadata)")
@@ -693,19 +701,28 @@ if __name__ == "__main__":
         action="store_true",
         help="Use IPv6 metadata URL",
     )
-    parser.parse_args()
+    args = parser.parse_args()
 
-    ipv6_enabled = parser.ipv6
+    ipv6_enabled = args.ipv6
 
-    print(
-        atomic_helper.json_dumps(
-            {
-                "read_opc_metadata": read_opc_metadata(
-                    metadata_pattern=(
-                        IPV6_METADATA_PATTERN if ipv6_enabled else IPV4_METADATA_PATTERN
-                    )
-                ),
-                "_is_platform_viable": _is_platform_viable(),
-            }
-        )
-    )
+    
+    # print(
+    #     atomic_helper.json_dumps(
+    #         {
+    #             "read_opc_metadata": read_opc_metadata(
+    #                 metadata_patterns=(
+    #                     [IPV6_METADATA_PATTERN if ipv6_enabled else IPV4_METADATA_PATTERN]
+    #                 )
+    #             ),
+    #             "_is_platform_viable": _is_platform_viable(),
+    #         }
+    #     )
+    # )
+    
+    md_pattern = IPV6_METADATA_PATTERN if ipv6_enabled else IPV4_METADATA_PATTERN
+    url = md_pattern.format(version=1, path="instance")
+    print("attempting to readurl() on:", url)
+    result = readurl(url=url, timeout=0.5)
+    print("readurl() result:", result)
+
+

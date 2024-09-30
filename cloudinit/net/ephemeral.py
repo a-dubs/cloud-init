@@ -411,7 +411,9 @@ class EphemeralIPNetwork:
         interface,
         ipv6: bool = False,
         ipv4: bool = True,
-        connectivity_urls: Optional[List[Dict[str, Any]]] = None,
+        connectivity_url_data: Optional[Dict[str, Any]] = None,
+        ipv6_imds_endpoint_url_data: Optional[Dict[str, Any]] = None,
+        prefer_ipv6: bool = False,
     ):
         self.interface = interface
         self.ipv4 = ipv4
@@ -419,7 +421,9 @@ class EphemeralIPNetwork:
         self.stack = contextlib.ExitStack()
         self.state_msg: str = ""
         self.distro = distro
-        self.connectivity_urls = connectivity_urls
+        self.connectivity_url_data = connectivity_url_data
+        self.ipv6_imds_endpoint_url_data = ipv6_imds_endpoint_url_data
+        self.prefer_ipv6 = prefer_ipv6
 
     def __enter__(self):
         if not (self.ipv4 or self.ipv6):
@@ -428,34 +432,21 @@ class EphemeralIPNetwork:
             return self
         exceptions = []
         ephemeral_obtained = False
-        if self.ipv4:
-            try:
-                self.stack.enter_context(
-                    EphemeralDHCPv4(
-                        distro=self.distro,
-                        iface=self.interface,
-                        connectivity_urls=self.connectivity_urls,
-                    )
-                )
-                ephemeral_obtained = True
-            except (ProcessExecutionError, NoDHCPLeaseError) as e:
-                LOG.info("Failed to bring up %s for ipv4.", self)
-                exceptions.append(e)
+        
+        if self.prefer_ipv6:
+            LOG.debug("[CPC-3194] Attempting to bring up ipv6 ephemeral network first")
+            ephemeral_obtained, exceptions = self._do_ipv6(ephemeral_obtained, exceptions)
+            LOG.debug("[CPC-3194] ipv6 ephemeral network setup result: %s", ephemeral_obtained)
+            ipv6_imds_reachable = self._check_ipv6_connectivity()
+            LOG.debug("[CPC-3194] ipv6 connectivity check result: %s", ipv6_imds_reachable)
+            if not ephemeral_obtained and self.ipv4 and not ipv6_imds_reachable:
+                LOG.debug("[CPC-3194] Attempting to bring up ipv4 ephemeral network since ipv6 failed")
+                ephemeral_obtained, exceptions = self._do_ipv4(ephemeral_obtained, exceptions)
+        else:
+            ephemeral_obtained, exceptions = self._do_ipv4(ephemeral_obtained, exceptions)
+            if not ephemeral_obtained and self.ipv6:
+                ephemeral_obtained, exceptions = self._do_ipv6(ephemeral_obtained, exceptions)
 
-        if self.ipv6:
-            try:
-                self.stack.enter_context(
-                    EphemeralIPv6Network(
-                        self.distro,
-                        self.interface,
-                    )
-                )
-                ephemeral_obtained = True
-                if exceptions or not self.ipv4:
-                    self.state_msg = "using link-local ipv6"
-            except ProcessExecutionError as e:
-                LOG.info("Failed to bring up %s for ipv6.", self)
-                exceptions.append(e)
         if not ephemeral_obtained:
             # Ephemeral network setup failed in linkup for both ipv4 and
             # ipv6. Raise only the first exception found.
@@ -465,6 +456,63 @@ class EphemeralIPNetwork:
             )
             raise exceptions[0]
         return self
+
+    def _do_ipv4(self, ephemeral_obtained, exceptions) -> tuple[str, list[Exception]]:
+        try:
+            self.stack.enter_context(
+                EphemeralDHCPv4(
+                    distro=self.distro,
+                    iface=self.interface,
+                    connectivity_url_data=self.connectivity_url_data,
+                )
+            )
+            ephemeral_obtained = True
+            LOG.info("[CPC-3194] Successfully brought up %s for ipv4.", self)
+        except (ProcessExecutionError, NoDHCPLeaseError) as e:
+            LOG.info("[CPC-3194] Failed to bring up %s for ipv4.", self)
+            exceptions.append(e)
+        return ephemeral_obtained, exceptions
+    
+    def _do_ipv6(self, ephemeral_obtained, exceptions) -> tuple[str, list[Exception]]:
+        try:
+            self.stack.enter_context(
+                EphemeralIPv6Network(
+                    self.distro,
+                    self.interface,
+                )
+            )
+            ephemeral_obtained = True
+            LOG.info("[CPC-3194] Successfully brought up %s for ipv6.", self)
+        except ProcessExecutionError as e:
+            LOG.info("[CPC-3194] Failed to bring up %s for ipv6.", self)
+            # we don't set ephemeral_obtained to False here because we want to
+            # retain a potential true value from any previous successful
+            # ephemeral network setup
+            exceptions.append(e)
+        return ephemeral_obtained, exceptions
+    
+    def _check_ipv6_connectivity(self):
+        if self.ipv6_imds_endpoint_url_data:
+            LOG.debug("[CPC-3194] Checking ipv6 connectivity for %s", 
+                      self.ipv6_imds_endpoint_url_data)
+            url_response = net.readurl(
+                check_status=False,
+                url=self.ipv6_imds_endpoint_url_data["url"],
+                headers=self.ipv6_imds_endpoint_url_data.get("headers"),
+                timeout=self.ipv6_imds_endpoint_url_data.get("timeout", 0.5),
+            )
+            LOG.debug(
+                "[CPC-3194] Response from ipv6 connectivity check: %s",
+                url_response.code,
+            ) 
+            # check if the response is ok
+            if url_response.code < 400:
+                LOG.debug("[CPC-3194] Successfully checked ipv6 connectivity.")
+                return True
+        else:
+            LOG.debug("[CPC-3194] No IPv6 connectivity URL data provided. "
+                      "Assuming IPv6 connectivity is not available.")
+        return False
 
     def __exit__(self, *_args):
         self.stack.close()
