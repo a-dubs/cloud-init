@@ -425,6 +425,9 @@ class EphemeralIPNetwork:
         self.ipv6_imds_endpoint_url_data = ipv6_imds_endpoint_url_data
         self.prefer_ipv6 = prefer_ipv6
 
+        # will be updated by the context manager
+        self.ipv6_reachable = False
+
     def __enter__(self):
         if not (self.ipv4 or self.ipv6):
             # no ephemeral network requested, but this object still needs to
@@ -438,6 +441,7 @@ class EphemeralIPNetwork:
             ephemeral_obtained, exceptions = self._do_ipv6(ephemeral_obtained, exceptions)
             LOG.debug("[CPC-3194] ipv6 ephemeral network setup result: %s", ephemeral_obtained)
             ipv6_imds_reachable = self._check_ipv6_connectivity()
+            self.ipv6_reachable = ipv6_imds_reachable
             LOG.debug("[CPC-3194] ipv6 connectivity check result: %s", ipv6_imds_reachable)
             if not ephemeral_obtained and self.ipv4 and not ipv6_imds_reachable:
                 LOG.debug("[CPC-3194] Attempting to bring up ipv4 ephemeral network since ipv6 failed")

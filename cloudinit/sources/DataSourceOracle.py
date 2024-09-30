@@ -343,12 +343,22 @@ class DataSourceOracle(sources.DataSource):
     )
 
         with network_context:
+            if network_context.ipv6_reachable:
+                md_patterns = [IPV6_METADATA_PATTERN]
+                # self.metadata_address = IPV6_METADATA_ROOT.format(
+                #     version=1
+                # )
+            else:
+                md_patterns = [IPV4_METADATA_PATTERN]
+                # self.metadata_address = IPV4_METADATA_ROOT.format(
+                #     version=1
+                # )
             LOG.debug("[CPC-3194] Fetching metadata (read_opc_metadata)")
             fetched_metadata, url_that_worked = read_opc_metadata(
                 fetch_vnics_data=fetch_primary_nic or fetch_secondary_nics,
                 max_wait=self.url_max_wait,
                 timeout=self.url_timeout,
-                metadata_patterns=[IPV6_METADATA_PATTERN, IPV4_METADATA_PATTERN],
+                metadata_patterns=md_patterns,
             )
             # set the metadata root address that worked to allow for detecting
             # whether ipv4 or ipv6 was used for getting metadata
