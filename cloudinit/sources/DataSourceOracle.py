@@ -217,75 +217,12 @@ class DataSourceOracle(sources.DataSource):
         return connected
 
 
-    # def wait_for_metadata_service(self, nic, valid_urls, metadata_version):
-
-    #     urls = self.ds_cfg.get("metadata_urls", METADATA_URLS)
-
-    #     if not valid_urls:
-    #        filtered = self.check_connectivity(nic, metadata_version)
-    #     else:
-    #        filtered = valid_urls
-
-    #     if set(filtered) != set(urls):
-    #         LOG.debug(
-    #             "Removed the following from metadata urls: %s",
-    #             list((set(urls) - set(filtered))),
-    #         )
-
-    #     if len(filtered):
-    #         urls = filtered
-    #     else:
-    #         LOG.warning("Empty metadata url list! using default list")
-    #         urls = METADATA_URLS
-
-    #     md_urls = []
-    #     url2base = {}
-    #     for url in urls:
-    #         md_url = url.format(nic=nic, version=metadata_version)
-    #         md_url = combine_url(md_url, "instance")
-    #         md_urls.append(md_url)
-    #         url2base[md_url] = url
-
-    #     url_params = self.get_url_params()
-    #     start_time = time.time()
-    #     avail_url, _response = wait_for_url(
-    #         urls=md_urls,
-    #         headers_cb=self._get_headers,
-    #         max_wait=url_params.max_wait_seconds,
-    #         timeout=url_params.timeout_seconds,
-    #     )
-    #     if avail_url:
-    #         LOG.debug("Using metadata source: '%s'", url2base[avail_url])
-    #     else:
-    #         LOG.debug(
-    #             "Giving up on Oracle md from %s after %s seconds",
-    #             md_urls,
-    #             int(time.time() - start_time),
-    #         )
-
-    #     self.metadata_address = url2base.get(avail_url)
-    #     LOG.debug("wait_for_metadata: Returned metadata address: %s", self.metadata_address)
-    #     return bool(avail_url)
-
-
     def _get_data(self):
 
         self.system_uuid = _read_system_uuid()
         iface=net.find_fallback_nic(),
         # Convert tuple to string
         nic_name=''.join(iface)
-
-        LOG.debug("[CPC-3194] Oracle datasource: Various debug logging")
-        # log_iface()
-        # log_primary_ip()
-
-
-        # test routes for both ipv4 and ipv6 and log to console
-        ipv4_routes_enabled = ip_routes_enabled("ipv4")
-        ipv6_routes_enabled = ip_routes_enabled("ipv6")
-        LOG.debug("[CPC-3194] IPv4 routes enabled: %s", ipv4_routes_enabled)
-        LOG.debug("[CPC-3194] IPv6 routes enabled: %s", ipv6_routes_enabled)
-
 
         # available_urls = self.check_connectivity(METADATA_URLS, [1, 2])
         ipv4_connectivity_urls = [
@@ -297,11 +234,6 @@ class DataSourceOracle(sources.DataSource):
 
         LOG.debug("[CPC-3194] IPv4 Connectivity URLs for Ephemeral Network to check: %s", ipv4_connectivity_urls)
 
-        
-
-        # is_ipv6 = any([_is_ipv6_metadata_url(url) for url in available_urls])
-        # is_ipv4 = any([_is_ipv4_metadata_url(url) for url in available_urls])
-
         # if we have connectivity to imds, then skip ephemeral network setup
         if self.perform_dhcp_setup: # and not available_urls:
             # TODO: ask james: this obviously fails on ipv6 single stack only
@@ -310,23 +242,13 @@ class DataSourceOracle(sources.DataSource):
             # if so, could we just check for iscsi root and then do this?
             LOG.debug("[CPC-3194] Performing ephemeral network setup")
             try:
-                # ipv4_enabled = True
-                # if str(self.distro.name).lower() == "ubuntu":
-                #     LOG.debug("[CPC-3194] Ubuntu detected!")
-                #     if not ipv4_routes_enabled:
-                #         LOG.debug("[CPC-3194] IPv4 routes not enabled, disabling IPv4")
-                #         ipv4_enabled = False
-                ipv6_url_data = {
-                    "url": IPV6_METADATA_PATTERN.format(version=1, path="instance"),
-                }
                 network_context = ephemeral.EphemeralIPNetwork(
                     distro=self.distro,
                     interface=nic_name,
                     ipv6=True,   
                     ipv4=True, 
                     connectivity_url_data=ipv4_connectivity_url_data,
-                    prefer_ipv6=True,
-                    ipv6_imds_endpoint_url_data=ipv6_url_data,
+                    ipv6_connectivity_check_callback=check_ipv6_connectivity,
                 )
             except Exception as e:
                 LOG.debug("[CPC-3194] Failed to perform DHCPv4 setup: %s", e)
@@ -343,16 +265,10 @@ class DataSourceOracle(sources.DataSource):
     )
 
         with network_context:
-            if network_context.ipv6_reachable:
+            if network_context.ipv6_reached_at_url:
                 md_patterns = [IPV6_METADATA_PATTERN]
-                # self.metadata_address = IPV6_METADATA_ROOT.format(
-                #     version=1
-                # )
             else:
                 md_patterns = [IPV4_METADATA_PATTERN]
-                # self.metadata_address = IPV4_METADATA_ROOT.format(
-                #     version=1
-                # )
             LOG.debug("[CPC-3194] Fetching metadata (read_opc_metadata)")
             fetched_metadata, url_that_worked = read_opc_metadata(
                 fetch_vnics_data=fetch_primary_nic or fetch_secondary_nics,
@@ -362,15 +278,12 @@ class DataSourceOracle(sources.DataSource):
             )
             # set the metadata root address that worked to allow for detecting
             # whether ipv4 or ipv6 was used for getting metadata
-            if _is_ipv4_metadata_url(url_that_worked):
-                self.metadata_address = IPV4_METADATA_ROOT.format(
-                    version=fetched_metadata.version
-                )
+            self.metadata_address = _get_versioned_metadata_base_url(
+                url=url_that_worked
+            )
+            if _is_ipv4_metadata_url(self.metadata_address):
                 LOG.debug("[CPC-3194] Read metadata from IPv4 URL: %s", self.metadata_address)
             else:
-                self.metadata_address = IPV6_METADATA_ROOT.format(
-                    version=fetched_metadata.version
-                )
                 LOG.debug("[CPC-3194] Read metadata from IPv6 URL: %s", self.metadata_address)
         
         if not fetched_metadata:
@@ -593,6 +506,16 @@ def _url_version(url: str) -> int:
 def _headers_cb(url: str) -> Optional[Dict[str, str]]:
     return V2_HEADERS if _url_version(url) == 2 else None
 
+def _get_versioned_metadata_base_url(url: str) -> str:
+    """
+    Remove everything following the version number in the metadata address.
+    """
+    if "v2" in url:
+        return url.split("v2")[0] + "v2/"
+    elif "v1" in url:
+        return url.split("v1")[0] + "v1/"
+    else:
+        raise ValueError("Invalid metadata address")
 
 def log_iface():
     result = subp.subp(["ip", "link", "show"], capture=True)
@@ -647,7 +570,7 @@ def read_opc_metadata(
     )
     if not instance_url:
         LOG.warning("Failed to fetch IMDS metadata!")
-        return None
+        return (None, None)
     instance_data = json.loads(instance_response.decode("utf-8"))
 
     # save whichever version we got the instance data from for vnics data later
@@ -677,6 +600,45 @@ def read_opc_metadata(
         OpcMetadata(metadata_version, instance_data, vnics_data), 
         metadata_pattern,
     )
+
+def check_ipv6_connectivity() -> str:
+    """
+    Check if IMDS is reachable over IPv6.
+    
+    :return: The URL that was used to check connectivity if successful, else None
+    """
+    ipv6_imds_endpoint_urls_data = [ # try v2 first, then v1
+        {
+            "url": IPV6_METADATA_PATTERN.format(version=2, path="instance"),
+            "headers": V2_HEADERS,
+        },
+        {
+            "url": IPV6_METADATA_PATTERN.format(version=1, path="instance"),
+        },
+    ]
+    for url_data in ipv6_imds_endpoint_urls_data:
+        LOG.debug(
+            "[CPC-3194] Checking ipv6 connectivity for %s", 
+            url_data["url"],
+        )
+        url_response = net.readurl(
+            check_status=False,
+            url=url_data["url"],
+            headers=url_data.get("headers"),
+            timeout=0.5,  # keep really short for quick failure path
+        )
+        LOG.debug(
+            "[CPC-3194] Response from ipv6 connectivity check: %s",
+            url_response.code,
+        ) 
+        # check if the response is ok
+        if url_response.code < 400:
+            LOG.debug("[CPC-3194] Successfully checked ipv6 connectivity.")
+            return url_data["url"]
+        else:
+            LOG.debug("[CPC-3194] Failed to get OK from: %s", url_data["url"])
+    LOG.debug("[CPC-3194] IMDS is not usable over IPv6")
+    return None
 
 # Used to match classes to dependencies
 datasources = [

@@ -412,8 +412,7 @@ class EphemeralIPNetwork:
         ipv6: bool = False,
         ipv4: bool = True,
         connectivity_url_data: Optional[Dict[str, Any]] = None,
-        ipv6_imds_endpoint_url_data: Optional[Dict[str, Any]] = None,
-        prefer_ipv6: bool = False,
+        ipv6_connectivity_check_callback: Optional[Callable] = None,
     ):
         self.interface = interface
         self.ipv4 = ipv4
@@ -422,11 +421,10 @@ class EphemeralIPNetwork:
         self.state_msg: str = ""
         self.distro = distro
         self.connectivity_url_data = connectivity_url_data
-        self.ipv6_imds_endpoint_url_data = ipv6_imds_endpoint_url_data
-        self.prefer_ipv6 = prefer_ipv6
+        self.ipv6_connectivity_check_callback = ipv6_connectivity_check_callback
 
         # will be updated by the context manager
-        self.ipv6_reachable = False
+        self.ipv6_reached_at_url = None
 
     def __enter__(self):
         if not (self.ipv4 or self.ipv6):
@@ -436,19 +434,21 @@ class EphemeralIPNetwork:
         exceptions = []
         ephemeral_obtained = False
         
-        if self.prefer_ipv6:
-            LOG.debug("[CPC-3194] Attempting to bring up ipv6 ephemeral network first")
+        if self.ipv6_connectivity_check_callback is not None:
+            LOG.debug("[CPC-3194] IPv6 connectivity check url provided. Attempting to bring up ipv6 ephemeral network first")
             ephemeral_obtained, exceptions = self._do_ipv6(ephemeral_obtained, exceptions)
             LOG.debug("[CPC-3194] ipv6 ephemeral network setup result: %s", ephemeral_obtained)
-            ipv6_imds_reachable = self._check_ipv6_connectivity()
-            self.ipv6_reachable = ipv6_imds_reachable
-            LOG.debug("[CPC-3194] ipv6 connectivity check result: %s", ipv6_imds_reachable)
-            if not ephemeral_obtained and self.ipv4 and not ipv6_imds_reachable:
+            self.ipv6_reached_at_url = self.ipv6_connectivity_check_callback()
+            # if ipv6_connectivity_check_callback is provided, then we want to
+            # skip ipv4 ephemeral network setup if ipv6 ephemeral network setup
+            # and imds connectivity check succeeded
+            if not ephemeral_obtained and self.ipv4 and not self.ipv6_reached_at_url:
                 LOG.debug("[CPC-3194] Attempting to bring up ipv4 ephemeral network since ipv6 failed")
                 ephemeral_obtained, exceptions = self._do_ipv4(ephemeral_obtained, exceptions)
         else:
-            ephemeral_obtained, exceptions = self._do_ipv4(ephemeral_obtained, exceptions)
-            if not ephemeral_obtained and self.ipv6:
+            if self.ipv4:
+                ephemeral_obtained, exceptions = self._do_ipv4(ephemeral_obtained, exceptions)
+            if self.ipv6:
                 ephemeral_obtained, exceptions = self._do_ipv6(ephemeral_obtained, exceptions)
 
         if not ephemeral_obtained:
@@ -494,29 +494,7 @@ class EphemeralIPNetwork:
             # ephemeral network setup
             exceptions.append(e)
         return ephemeral_obtained, exceptions
-    
-    def _check_ipv6_connectivity(self):
-        if self.ipv6_imds_endpoint_url_data:
-            LOG.debug("[CPC-3194] Checking ipv6 connectivity for %s", 
-                      self.ipv6_imds_endpoint_url_data)
-            url_response = net.readurl(
-                check_status=False,
-                url=self.ipv6_imds_endpoint_url_data["url"],
-                headers=self.ipv6_imds_endpoint_url_data.get("headers"),
-                timeout=self.ipv6_imds_endpoint_url_data.get("timeout", 0.5),
-            )
-            LOG.debug(
-                "[CPC-3194] Response from ipv6 connectivity check: %s",
-                url_response.code,
-            ) 
-            # check if the response is ok
-            if url_response.code < 400:
-                LOG.debug("[CPC-3194] Successfully checked ipv6 connectivity.")
-                return True
-        else:
-            LOG.debug("[CPC-3194] No IPv6 connectivity URL data provided. "
-                      "Assuming IPv6 connectivity is not available.")
-        return False
+
 
     def __exit__(self, *_args):
         self.stack.close()
