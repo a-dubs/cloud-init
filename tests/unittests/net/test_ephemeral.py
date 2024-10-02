@@ -15,6 +15,7 @@ M_PATH = "cloudinit.net.ephemeral."
 class TestEphemeralIPNetwork:
     @pytest.mark.parametrize("ipv6", [False, True])
     @pytest.mark.parametrize("ipv4", [False, True])
+    @pytest.mark.parametrize("connectivity_url_data", [None, {"url":"foo"}])
     @mock.patch(M_PATH + "contextlib.ExitStack")
     @mock.patch(M_PATH + "EphemeralIPv6Network")
     @mock.patch(M_PATH + "EphemeralDHCPv4")
@@ -23,12 +24,13 @@ class TestEphemeralIPNetwork:
         m_ephemeral_dhcp_v4,
         m_ephemeral_ip_v6_network,
         m_exit_stack,
+        connectivity_url_data,
         ipv4,
         ipv6,
     ):
         interface = object()
         distro = MockDistro()
-        with EphemeralIPNetwork(distro, interface, ipv4=ipv4, ipv6=ipv6):
+        with EphemeralIPNetwork(distro, interface, ipv4=ipv4, ipv6=ipv6, connectivity_url_data=connectivity_url_data):
             pass
         expected_call_args_list = []
         if ipv4:
@@ -36,7 +38,7 @@ class TestEphemeralIPNetwork:
                 mock.call(m_ephemeral_dhcp_v4.return_value)
             )
             assert [
-                mock.call(distro, interface)
+                mock.call(distro=distro, iface=interface, connectivity_url_data=connectivity_url_data)
             ] == m_ephemeral_dhcp_v4.call_args_list
         else:
             assert [] == m_ephemeral_dhcp_v4.call_args_list

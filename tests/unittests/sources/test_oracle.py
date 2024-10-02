@@ -108,6 +108,14 @@ DHCP = {
 }
 KLIBC_NET_CFG = {"version": 1, "config": [DHCP]}
 
+ipv6_v1_instance_url = oracle.IPV6_METADATA_PATTERN.format(
+    path="instance",
+    version=1,
+)
+ipv4_v1_instance_url = oracle.IPV4_METADATA_PATTERN.format(
+    path="instance",
+    version=1,
+)
 
 @pytest.fixture
 def metadata_version():
@@ -144,11 +152,20 @@ def oracle_ds(request, fixture_utils, paths, metadata_version, mocker):
     )
 
     metadata = OpcMetadata(metadata_version, json.loads(OPC_V2_METADATA), None)
-    md_url_pattern = oracle.IPV6_METADATA_PATTERN if use_ipv6 else oracle.IPV4_METADATA_PATTERN
+    ipv6_v1_instance_url = oracle.IPV6_METADATA_PATTERN.format(
+        path="instance/",
+        version=metadata_version,
+    )
+    ipv4_v1_instance_url = oracle.IPV4_METADATA_PATTERN.format(
+        path="instance/",
+        version=metadata_version,
+    )
+    md_url_pattern = ipv6_v1_instance_url if use_ipv6 else ipv4_v1_instance_url
 
     mocker.patch(DS_PATH + ".net.find_fallback_nic", return_value="fake_eth0")
     mocker.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
     mocker.patch(DS_PATH + ".ephemeral.EphemeralIPNetwork")
+    mocker.patch(DS_PATH + ".ip_routes_enabled", return_value=True)
     mocker.patch(DS_PATH + "._read_system_uuid", return_value="someuuid")
     mocker.patch(DS_PATH + ".DataSourceOracle.ds_detect", return_value=True)
     mocker.patch(DS_PATH + ".read_opc_metadata", return_value=(metadata, md_url_pattern))
@@ -730,7 +747,7 @@ class TestReadOpcMetadata:
         mocked_responses,
     ):
         setup_urls(mocked_responses)
-        metadata = oracle.read_opc_metadata(fetch_vnics_data=fetch_vnics)
+        metadata, url = oracle.read_opc_metadata(fetch_vnics_data=fetch_vnics)
 
         assert version == metadata.version
         assert instance_data == metadata.instance_data
@@ -794,7 +811,7 @@ class TestReadOpcMetadata:
             return ("http://localhost", b"{}")
 
         with mock.patch(DS_PATH + ".wait_for_url", side_effect=m_wait):
-            opc_metadata = oracle.read_opc_metadata(fetch_vnics_data=True)
+            opc_metadata, url = oracle.read_opc_metadata(fetch_vnics_data=True)
             assert None is opc_metadata.vnics_data
         assert (
             logging.WARNING,
@@ -907,44 +924,70 @@ class TestCommon_GetDataBehaviour:
         metadata = OpcMetadata(None, instance_data, None)
         with mock.patch(
             DS_PATH + ".read_opc_metadata",
-            mock.Mock(return_value=metadata),
+            mock.Mock(return_value=(metadata, ipv4_v1_instance_url)),
         ):
             assert oracle_ds._check_and_get_data()
             assert expected_value == oracle_ds.get_public_ssh_keys()
 
-    def test_missing_user_data_handled_gracefully(self, oracle_ds):
+    # @pytest.mark.parametrize(   
+    #     "use_ipv6",
+    #     [
+    #         pytest.param(marks=pytest.mark.use_ipv6(True), id="ipv6"),
+    #         pytest.param(marks=pytest.mark.use_ipv6(False), id="ipv4"),
+    #     ],
+    # )
+    @pytest.mark.parametrize(
+        "use_ipv6",
+        [
+            pytest.param(True, id="ipv6"),
+            pytest.param(False, id="ipv4"),
+        ],
+    )
+    def test_missing_user_data_handled_gracefully(self, oracle_ds, use_ipv6):
         instance_data = json.loads(OPC_V1_METADATA)
         del instance_data["metadata"]["user_data"]
         metadata = OpcMetadata(None, instance_data, None)
+        md_url_pattern = ipv6_v1_instance_url if use_ipv6 else ipv4_v1_instance_url
+
         with mock.patch(
             DS_PATH + ".read_opc_metadata",
-            mock.Mock(return_value=metadata),
+            mock.Mock(return_value=(metadata, md_url_pattern)),
         ):
             assert oracle_ds._check_and_get_data()
 
         assert oracle_ds.userdata_raw is None
 
-    def test_missing_metadata_handled_gracefully(self, oracle_ds):
+    @pytest.mark.parametrize(
+        "use_ipv6", 
+        [
+            pytest.param(True, id="ipv6"),
+            pytest.param(False, id="ipv4"),
+        ],
+    )
+    def test_missing_metadata_handled_gracefully(self, oracle_ds, use_ipv6):
         instance_data = json.loads(OPC_V1_METADATA)
         del instance_data["metadata"]
         metadata = OpcMetadata(None, instance_data, None)
+        md_url_pattern = ipv6_v1_instance_url if use_ipv6 else ipv4_v1_instance_url
         with mock.patch(
             DS_PATH + ".read_opc_metadata",
-            mock.Mock(return_value=metadata),
+            mock.Mock(return_value=(metadata, md_url_pattern)),
         ):
             assert oracle_ds._check_and_get_data()
 
         assert oracle_ds.userdata_raw is None
         assert [] == oracle_ds.get_public_ssh_keys()
 
-
 @pytest.mark.is_iscsi(False)
 class TestNonIscsiRoot_GetDataBehaviour:
     @mock.patch(DS_PATH + ".ephemeral.EphemeralIPNetwork")
     @mock.patch(DS_PATH + ".net.find_fallback_nic", return_value="fake_eth0")
-    def test_run_net_files(
-        self, m_find_fallback_nic, m_ephemeral_network, oracle_ds
+    @mock.patch(DS_PATH + ".check_ipv6_connectivity")
+    def test_read_opc_metadata_called_with_ephemeral_dhcp(
+        self, m_ipv6_check, m_find_fallback_nic, m_ephemeral_network, oracle_ds
     ):
+        url_that_worked = ipv4_v1_instance_url
+
         in_context_manager = False
 
         def enter_context_manager():
@@ -964,79 +1007,28 @@ class TestNonIscsiRoot_GetDataBehaviour:
 
         def assert_in_context_manager(**kwargs):
             assert in_context_manager
-            return mock.MagicMock()
+            return (mock.MagicMock(), url_that_worked)
 
         with mock.patch(
             DS_PATH + ".read_opc_metadata",
-            mock.Mock(side_effect=assert_in_context_manager),
+            mock.Mock(
+                side_effect=assert_in_context_manager,
+            ),
         ):
             assert oracle_ds._check_and_get_data()
 
-    # distro=self.distro,
-    #                 interface=nic_name,
-    #                 ipv6=True,   
-    #                 ipv4=True, 
-    #                 connectivity_urls=connectivity_urls,
         assert [
             mock.call(
-                oracle_ds.distro,
+                distro=oracle_ds.distro,
                 interface=m_find_fallback_nic.return_value,
                 ipv6=True,
                 ipv4=True,
-                connectivity_urls=[{
-                    "headers": {"Authorization": "Bearer Oracle"},
-                    "url": oracle.IPV4_METADATA_ROOT.format(version=1),
-                }, 
-                {
-                    "headers": {"Authorization": "Bearer Oracle"},
-                    "url": oracle.IPV4_METADATA_ROOT.format(version=1),
-                }],
+                connectivity_url_data={
+                    "url": url_that_worked,
+                },
+                ipv6_connectivity_check_callback=m_ipv6_check,
             )
         ] == m_ephemeral_network.call_args_list
-
-    @mock.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
-    @mock.patch(DS_PATH + ".net.find_fallback_nic")
-    def test_read_opc_metadata_called_with_ephemeral_dhcp(
-        self, m_find_fallback_nic, m_EphemeralDHCPv4, oracle_ds
-    ):
-        in_context_manager = False
-
-        def enter_context_manager():
-            nonlocal in_context_manager
-            in_context_manager = True
-
-        def exit_context_manager(*args):
-            nonlocal in_context_manager
-            in_context_manager = False
-
-        m_EphemeralDHCPv4.return_value.__enter__.side_effect = (
-            enter_context_manager
-        )
-        m_EphemeralDHCPv4.return_value.__exit__.side_effect = (
-            exit_context_manager
-        )
-
-        def assert_in_context_manager(**kwargs):
-            assert in_context_manager
-            return mock.MagicMock()
-
-        with mock.patch(
-            DS_PATH + ".read_opc_metadata",
-            mock.Mock(side_effect=assert_in_context_manager),
-        ):
-            assert oracle_ds._check_and_get_data()
-
-        assert [
-            mock.call(
-                oracle_ds.distro,
-                iface=m_find_fallback_nic.return_value,
-                connectivity_url_data={
-                    "headers": {"Authorization": "Bearer Oracle"},
-                    "url": "http://169.254.169.254/opc/v2/instance/",
-                },
-            )
-        ] == m_EphemeralDHCPv4.call_args_list
-
 
 @mock.patch(DS_PATH + ".get_interfaces_by_mac", return_value={})
 class TestNetworkConfig:
