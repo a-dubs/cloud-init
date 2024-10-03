@@ -281,7 +281,7 @@ class EphemeralDHCPv4:
         self,
         distro,
         iface=None,
-        #TODO: combine these. keeping connectivity_url_data for backwards compatibility
+        # TODO: combine these. keeping connectivity_url_data for backwards compatibility
         connectivity_url_data: Optional[Dict[str, Any]] = None,
         connectivity_urls: Optional[List[Dict[str, Any]]] = None,
         dhcp_log_func=None,
@@ -421,7 +421,9 @@ class EphemeralIPNetwork:
         self.state_msg: str = ""
         self.distro = distro
         self.connectivity_url_data = connectivity_url_data
-        self.ipv6_connectivity_check_callback = ipv6_connectivity_check_callback
+        self.ipv6_connectivity_check_callback = (
+            ipv6_connectivity_check_callback
+        )
 
         # will be updated by the context manager
         self.ipv6_reached_at_url = None
@@ -433,23 +435,42 @@ class EphemeralIPNetwork:
             return self
         exceptions = []
         ephemeral_obtained = False
-        
+
         if self.ipv6_connectivity_check_callback is not None:
-            LOG.debug("[CPC-3194] IPv6 connectivity check url provided. Attempting to bring up ipv6 ephemeral network first")
-            ephemeral_obtained, exceptions = self._do_ipv6(ephemeral_obtained, exceptions)
-            LOG.debug("[CPC-3194] ipv6 ephemeral network setup result: %s", ephemeral_obtained)
+            LOG.debug(
+                "[CPC-3194] IPv6 connectivity check url provided. Attempting to bring up ipv6 ephemeral network first"
+            )
+            ephemeral_obtained, exceptions = self._do_ipv6(
+                ephemeral_obtained, exceptions
+            )
+            LOG.debug(
+                "[CPC-3194] ipv6 ephemeral network setup result: %s",
+                ephemeral_obtained,
+            )
             self.ipv6_reached_at_url = self.ipv6_connectivity_check_callback()
             # if ipv6_connectivity_check_callback is provided, then we want to
             # skip ipv4 ephemeral network setup if ipv6 ephemeral network setup
             # and imds connectivity check succeeded
-            if not ephemeral_obtained and self.ipv4 and not self.ipv6_reached_at_url:
-                LOG.debug("[CPC-3194] Attempting to bring up ipv4 ephemeral network since ipv6 failed")
-                ephemeral_obtained, exceptions = self._do_ipv4(ephemeral_obtained, exceptions)
+            if (
+                not ephemeral_obtained
+                and self.ipv4
+                and not self.ipv6_reached_at_url
+            ):
+                LOG.debug(
+                    "[CPC-3194] Attempting to bring up ipv4 ephemeral network since ipv6 failed"
+                )
+                ephemeral_obtained, exceptions = self._do_ipv4(
+                    ephemeral_obtained, exceptions
+                )
         else:
             if self.ipv4:
-                ephemeral_obtained, exceptions = self._do_ipv4(ephemeral_obtained, exceptions)
+                ephemeral_obtained, exceptions = self._do_ipv4(
+                    ephemeral_obtained, exceptions
+                )
             if self.ipv6:
-                ephemeral_obtained, exceptions = self._do_ipv6(ephemeral_obtained, exceptions)
+                ephemeral_obtained, exceptions = self._do_ipv6(
+                    ephemeral_obtained, exceptions
+                )
 
         if not ephemeral_obtained:
             # Ephemeral network setup failed in linkup for both ipv4 and
@@ -461,7 +482,9 @@ class EphemeralIPNetwork:
             raise exceptions[0]
         return self
 
-    def _do_ipv4(self, ephemeral_obtained, exceptions) -> tuple[str, list[Exception]]:
+    def _do_ipv4(
+        self, ephemeral_obtained, exceptions
+    ) -> tuple[str, list[Exception]]:
         try:
             self.stack.enter_context(
                 EphemeralDHCPv4(
@@ -476,8 +499,10 @@ class EphemeralIPNetwork:
             LOG.info("[CPC-3194] Failed to bring up %s for ipv4.", self)
             exceptions.append(e)
         return ephemeral_obtained, exceptions
-    
-    def _do_ipv6(self, ephemeral_obtained, exceptions) -> tuple[str, list[Exception]]:
+
+    def _do_ipv6(
+        self, ephemeral_obtained, exceptions
+    ) -> tuple[str, list[Exception]]:
         try:
             self.stack.enter_context(
                 EphemeralIPv6Network(
@@ -494,7 +519,6 @@ class EphemeralIPNetwork:
             # ephemeral network setup
             exceptions.append(e)
         return ephemeral_obtained, exceptions
-
 
     def __exit__(self, *_args):
         self.stack.close()

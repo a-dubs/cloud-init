@@ -58,6 +58,64 @@ OPC_VM_SECONDARY_VNIC_RESPONSE = """\
   "subnetCidrBlock" : "10.0.0.0/24"
 } ]"""
 
+OPC_DUAL_STACK_VM_VNIC_RESPONSE = """\
+[
+  {
+    "ipv6Addresses": [
+      "2603:c020:400d:5dbb:e94a:a85d:26e3:e0d4"
+    ],
+    "ipv6SubnetCidrBlock": "2603:c020:400d:5dbb::/64",
+    "ipv6VirtualRouterIp": "fe80::200:17ff:fe40:8972",
+    "macAddr": "02:00:17:0D:6B:BE",
+    "privateIp": "10.0.0.183",
+    "subnetCidrBlock": "10.0.0.0/24",
+    "virtualRouterIp": "10.0.0.1",
+    "vlanTag": 929,
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtr2b6363afca55nzerlvwmfhxpqr4ij7dni4uiltqryx3vwyzpxdq"
+  }
+]"""
+
+OPC_DUAL_STACK_WITHI_IPV6_ONLY_SECONDARY_VNIC_RESPONSE = """\
+[
+  {
+    "ipv6Addresses": [
+      "2603:c020:400d:5dbb:e94a:a85d:26e3:e0d4"
+    ],
+    "ipv6SubnetCidrBlock": "2603:c020:400d:5dbb::/64",
+    "ipv6VirtualRouterIp": "fe80::200:17ff:fe40:8972",
+    "macAddr": "02:00:17:0D:6B:BE",
+    "privateIp": "10.0.0.183",
+    "subnetCidrBlock": "10.0.0.0/24",
+    "virtualRouterIp": "10.0.0.1",
+    "vlanTag": 929,
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtr2b6363afca55nzerlvwmfhxpqr4ij7dni4uiltqryx3vwyzpxdq"
+  },
+  {
+    "ipv6Addresses": [
+      "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a"
+    ],
+    "ipv6SubnetCidrBlock": "2603:c020:400d:5d7e::/64",
+    "ipv6VirtualRouterIp": "fe80::200:17ff:fe40:8972",
+    "macAddr": "02:00:17:18:F6:FF",
+    "subnetCidrBlock": "\u003cnull\u003e",
+    "vlanTag": 2659,
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtpfktyl2e3xm2ez4spj7wiliyclj5bpakhcric7ipykzdx7lxcikq"
+  }
+]"""
+
+OPC_IPV6_VM_VNIC_RESPONSE = """\
+[
+  {
+    "ipv6Addresses": [
+      "2603:c020:400d:5d7e:c2af:e153:ebe2:2478"
+    ],
+    "ipv6SubnetCidrBlock": "2603:c020:400d:5d7e::/64",
+    "ipv6VirtualRouterIp": "fe80::200:17ff:fe40:8972",
+    "macAddr": "02:00:17:15:92:4E",
+    "vlanTag": 1970,
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtqdmvgobi2kewwmgxybt5uyf6mnimho2pai4xa76pr4dbfckookgq"
+  }
+]"""
 
 # Fetched with `curl http://169.254.169.254/opc/v1/instance/` (and then
 # truncated for line length)
@@ -84,6 +142,39 @@ OPC_V2_METADATA = """\
     "monitoringDisabled" : true,
     "managementDisabled" : true
   }
+}"""
+
+OPC_V2_IPV6_METADATA = """\
+{
+  "availabilityDomain": "qIZq:US-ASHBURN-AD-1",
+  "canonicalRegionName": "us-ashburn-1",
+  "compartmentId": "ocid1.compartment.oc1..aaaaaaaayyvhlkxdjkhzu56is7qenv35h4jfh26oconxsro4qr2qx6ezgbpq",
+  "displayName": "jammy-ipv6-only-variant-base-instance",
+  "faultDomain": "FAULT-DOMAIN-3",
+  "hostname": "jammy-ipv6-only-variant-base-instance",
+  "id": "ocid1.instance.oc1.iad.anuwcljtniwq6sycqxrp36a46y7o2oxuev5iz3c4evjsap7rcswltmpethvq",
+  "image": "ocid1.image.oc1.iad.aaaaaaaa4jvzkneq635p7xr2nekgbffysu7eo5qk4hukjf2r27polhkceasq",
+  "metadata": {
+    "ssh_authorized_keys": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCz2LjQYg3zBnKtj+RT/sjuS8GpOqwEumpD25zNL+ejfDG+CmV3Q+xanAjcP98NqGGDjSoclzaIJCvUQ/2IvWqtrbO75oQuZgpul4sFfI3B0YtPHDP2D1n2I1v+nOIiAr+ggiCL2zG+cUf3t+EydXzj5xpptUa8LCsR4ZWPHoLK8A6DIeQBG+gD6UGqmnrLpD19OGKsfx1VfiW7klkaQ4FckDeMVyayyRbRemQTkdTWPdSdSxJoxGOVnDQAsfnDEDCBh8shdB8yhAQ6ffI2zcsyOLVpAUjS21sYZi6c+hXNKSQT4qgmv8WK4tc0F7P4IeW2aAybfsK34NQ+yzCzuQUB ssh-key-2024-01-15"
+  },
+  "ociAdName": "iad-ad-3",
+  "region": "iad",
+  "regionInfo": {
+    "realmDomainComponent": "oraclecloud.com",
+    "realmKey": "oc1",
+    "regionIdentifier": "us-ashburn-1",
+    "regionKey": "IAD"
+  },
+  "shape": "VM.Standard.E5.Flex",
+  "shapeConfig": {
+    "maxVnicAttachments": 2,
+    "memoryInGBs": 12.0,
+    "networkingBandwidthInGbps": 1.0,
+    "ocpus": 1.0
+  },
+  "state": "Running",
+  "tenantId": "ocid1.tenancy.oc1..aaaaaaaao7f7cccogqrg5emjxkxmctzbnhl6zdkkx36yq2jgxnm4p5vmysbq",
+  "timeCreated": 1726753916086
 }"""
 
 # Just a small meaningless change to differentiate the two metadatas
@@ -116,6 +207,7 @@ ipv4_v1_instance_url = oracle.IPV4_METADATA_PATTERN.format(
     path="instance",
     version=1,
 )
+
 
 @pytest.fixture
 def metadata_version():
@@ -165,10 +257,11 @@ def oracle_ds(request, fixture_utils, paths, metadata_version, mocker):
     mocker.patch(DS_PATH + ".net.find_fallback_nic", return_value="fake_eth0")
     mocker.patch(DS_PATH + ".ephemeral.EphemeralDHCPv4")
     mocker.patch(DS_PATH + ".ephemeral.EphemeralIPNetwork")
-    mocker.patch(DS_PATH + ".ip_routes_enabled", return_value=True)
     mocker.patch(DS_PATH + "._read_system_uuid", return_value="someuuid")
     mocker.patch(DS_PATH + ".DataSourceOracle.ds_detect", return_value=True)
-    mocker.patch(DS_PATH + ".read_opc_metadata", return_value=(metadata, md_url_pattern))
+    mocker.patch(
+        DS_PATH + ".read_opc_metadata", return_value=(metadata, md_url_pattern)
+    )
     mocker.patch(DS_PATH + ".KlibcOracleNetworkConfigSource")
     ds = oracle.DataSourceOracle(
         sys_cfg=sys_cfg,
@@ -929,7 +1022,7 @@ class TestCommon_GetDataBehaviour:
             assert oracle_ds._check_and_get_data()
             assert expected_value == oracle_ds.get_public_ssh_keys()
 
-    # @pytest.mark.parametrize(   
+    # @pytest.mark.parametrize(
     #     "use_ipv6",
     #     [
     #         pytest.param(marks=pytest.mark.use_ipv6(True), id="ipv6"),
@@ -947,7 +1040,9 @@ class TestCommon_GetDataBehaviour:
         instance_data = json.loads(OPC_V1_METADATA)
         del instance_data["metadata"]["user_data"]
         metadata = OpcMetadata(None, instance_data, None)
-        md_url_pattern = ipv6_v1_instance_url if use_ipv6 else ipv4_v1_instance_url
+        md_url_pattern = (
+            ipv6_v1_instance_url if use_ipv6 else ipv4_v1_instance_url
+        )
 
         with mock.patch(
             DS_PATH + ".read_opc_metadata",
@@ -958,7 +1053,7 @@ class TestCommon_GetDataBehaviour:
         assert oracle_ds.userdata_raw is None
 
     @pytest.mark.parametrize(
-        "use_ipv6", 
+        "use_ipv6",
         [
             pytest.param(True, id="ipv6"),
             pytest.param(False, id="ipv4"),
@@ -968,7 +1063,9 @@ class TestCommon_GetDataBehaviour:
         instance_data = json.loads(OPC_V1_METADATA)
         del instance_data["metadata"]
         metadata = OpcMetadata(None, instance_data, None)
-        md_url_pattern = ipv6_v1_instance_url if use_ipv6 else ipv4_v1_instance_url
+        md_url_pattern = (
+            ipv6_v1_instance_url if use_ipv6 else ipv4_v1_instance_url
+        )
         with mock.patch(
             DS_PATH + ".read_opc_metadata",
             mock.Mock(return_value=(metadata, md_url_pattern)),
@@ -977,6 +1074,7 @@ class TestCommon_GetDataBehaviour:
 
         assert oracle_ds.userdata_raw is None
         assert [] == oracle_ds.get_public_ssh_keys()
+
 
 @pytest.mark.is_iscsi(False)
 class TestNonIscsiRoot_GetDataBehaviour:
@@ -1029,6 +1127,7 @@ class TestNonIscsiRoot_GetDataBehaviour:
                 ipv6_connectivity_check_callback=m_ipv6_check,
             )
         ] == m_ephemeral_network.call_args_list
+
 
 @mock.patch(DS_PATH + ".get_interfaces_by_mac", return_value={})
 class TestNetworkConfig:
@@ -1179,27 +1278,46 @@ class TestNetworkConfig:
         ) == caplog.record_tuples[-1][1:]
 
     @pytest.mark.parametrize("set_primary", [True, False])
+    @pytest.mark.parametrize("use_ipv6", [True, False])
     def test_nics(
         self,
         m_get_interfaces_by_mac,
+        use_ipv6,
         set_primary,
         oracle_ds,
         caplog,
         mocker,
     ):
         """Correct number of configs added"""
-        vnics_data = json.loads(OPC_VM_SECONDARY_VNIC_RESPONSE)
+        if use_ipv6:
+            vnics_data = json.loads(OPC_IPV6_VM_VNIC_RESPONSE)
+        else:
+            vnics_data = json.loads(OPC_VM_SECONDARY_VNIC_RESPONSE)
         if set_primary:
             assert not oracle_ds._has_network_config()
         else:
             # Simulate primary config was taken from iscsi
             oracle_ds._network_config = copy.deepcopy(KLIBC_NET_CFG)
-
-        mocker.patch(
-            DS_PATH + ".get_interfaces_by_mac",
-            return_value={"02:00:17:05:d1:db": "eth_0", MAC_ADDR: "name_1"},
-        )
+        interface_mac = vnics_data[0]["macAddr"]
+        if use_ipv6:
+            mocker.patch(
+                DS_PATH + ".get_interfaces_by_mac",
+                return_value={"02:00:17:15:92:4E": "eth_0", MAC_ADDR: "name_1"},
+            )
+        else:
+            mocker.patch(
+                DS_PATH + ".get_interfaces_by_mac",
+                return_value={"02:00:17:05:d1:db": "eth_0", MAC_ADDR: "name_1"},
+            )
         mocker.patch.object(oracle_ds, "_vnics_data", vnics_data)
+        mocker.patch.object(oracle_ds, "metadata_address", 
+            ipv6_v1_instance_url if use_ipv6 else ipv4_v1_instance_url                    
+        )
+
+        # assert that oracle_ds.metadata_address is set correctly
+        assert oracle_ds.metadata_address == (
+            ipv6_v1_instance_url if use_ipv6 else ipv4_v1_instance_url
+        )
 
         oracle_ds._add_network_config_from_opc_imds(set_primary)
         assert 2 == len(
