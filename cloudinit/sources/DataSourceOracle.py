@@ -179,35 +179,6 @@ class DataSourceOracle(sources.DataSource):
         """Check platform environment to report if this datasource may run."""
         return _is_platform_viable()
 
-    def check_connectivity(
-        self, metadata_urls, metadata_versions
-    ) -> list[str]:
-        connected = []
-        for url in metadata_urls:
-            # sort metadata versions in descending order so that we can try the latest version first
-            metadata_versions.sort(reverse=True)
-            for metadata_version in metadata_versions:
-                LOG.debug(
-                    "[CPC-3194] Checking connectivity to %s",
-                    url.format(version=metadata_version),
-                )
-                chk_url = url.format(version=metadata_version)
-                # if util.is_resolvable_url(chk_url):
-                instance_url, instance_response = wait_for_url(
-                    [chk_url],
-                    max_wait=0,  # dont retry
-                    timeout=1,
-                    headers_cb=_headers_cb,
-                )
-                if instance_url:
-                    LOG.debug(
-                        "[CPC-3194] Connectivity to %s successful", chk_url
-                    )
-                    connected.append(url)
-                    break
-
-        return connected
-
     def _get_data(self):
 
         self.system_uuid = _read_system_uuid()
@@ -566,6 +537,11 @@ def read_opc_metadata(
     if not url_that_worked:
         LOG.warning("Failed to fetch IMDS metadata!")
         return (None, None)
+    else:
+        LOG.debug(
+            "Successfully fetched instance metadata from IMDS at: %s",
+            url_that_worked,
+        )
     instance_data = json.loads(instance_response.decode("utf-8"))
 
     # save whichever version we got the instance data from for vnics data later
@@ -582,10 +558,13 @@ def read_opc_metadata(
             timeout=timeout,
             headers_cb=_headers_cb,
             sleep_time=5,
-            connect_synchronously=False,
         )
         if vnics_url:
             vnics_data = json.loads(vnics_response.decode("utf-8"))
+            LOG.debug(
+                "Successfully fetched vnics metadata from IMDS at: %s",
+                vnics_url,
+            )
         else:
             LOG.warning("Failed to fetch IMDS network configuration!")
     return (
@@ -611,11 +590,11 @@ def check_ipv6_connectivity() -> str:
     ]
     for url_data in ipv6_imds_endpoint_urls_data:
         LOG.debug(
-            "[CPC-3194] Checking ipv6 connectivity for %s",
+            "Checking ipv6 connectivity against url: %s",
             url_data["url"],
         )
-        url_response = net.readurl(
-            check_status=False,
+        url_response = readurl(
+            check_status=False,  # don't raise exceptions on non-200 status
             url=url_data["url"],
             headers=url_data.get("headers"),
             timeout=0.5,  # keep really short for quick failure path
@@ -653,41 +632,22 @@ def get_datasource_list(depends):
 
 
 if __name__ == "__main__":
-    import argparse
 
     description = """
         Query Oracle Cloud metadata and emit a JSON object with two keys:
         `read_opc_metadata` and `_is_platform_viable`.  The values of each are
         the return values of the corresponding functions defined in
         DataSourceOracle.py."""
-    parser = argparse.ArgumentParser(description=description)
-    # add ipv6 flag
-    parser.add_argument(
-        "--ipv6",
-        action="store_true",
-        help="Use IPv6 metadata URL",
+
+    print(
+        atomic_helper.json_dumps(
+            {
+                "read_opc_metadata": read_opc_metadata(
+                    metadata_patterns=(
+                        [IPV6_METADATA_PATTERN, IPV4_METADATA_PATTERN]
+                    )
+                ),
+                "_is_platform_viable": _is_platform_viable(),
+            }
+        )
     )
-    args = parser.parse_args()
-
-    ipv6_enabled = args.ipv6
-
-    # print(
-    #     atomic_helper.json_dumps(
-    #         {
-    #             "read_opc_metadata": read_opc_metadata(
-    #                 metadata_patterns=(
-    #                     [IPV6_METADATA_PATTERN if ipv6_enabled else IPV4_METADATA_PATTERN]
-    #                 )
-    #             ),
-    #             "_is_platform_viable": _is_platform_viable(),
-    #         }
-    #     )
-    # )
-
-    md_pattern = (
-        IPV6_METADATA_PATTERN if ipv6_enabled else IPV4_METADATA_PATTERN
-    )
-    url = md_pattern.format(version=1, path="instance")
-    print("attempting to readurl() on:", url)
-    result = readurl(url=url, timeout=0.5)
-    print("readurl() result:", result)
