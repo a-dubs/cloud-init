@@ -391,28 +391,30 @@ class DataSourceOracle(sources.DataSource):
 
             if self._network_config["version"] == 1:
                 if is_primary:
-                    subnet = {"type": "dhcp"}
+                    subnets = [{"type": "dhcp"}]
                 else:
-                    if is_ipv6:
-                        subnet = {
-                            "type": "static",
-                            "address": (
-                                f"{vnic_dict['ipv6Addresses'][0]}/{network.prefixlen}"
-                            ),
-                        }
-                    else:
-                        subnet = {
+                    subnets = []
+                    if vnic_dict.get("privateIp"):
+                        subnets.append({
                             "type": "static",
                             "address": (
                                 f"{vnic_dict['privateIp']}/{network.prefixlen}"
                             ),
-                        }
+                        })
+                    if vnic_dict.get("ipv6Addresses"):
+                        subnets.append({
+                            "type": "static",
+                            "address": (
+                                f"{vnic_dict['ipv6Addresses'][0]}/{network.prefixlen}"
+                            ),
+                        })
+
                 interface_config = {
                     "name": name,
                     "type": "physical",
                     "mac_address": mac_address,
                     "mtu": MTU,
-                    "subnets": [subnet],
+                    "subnets": subnets,
                 }
                 self._network_config["config"].append(interface_config)
             elif self._network_config["version"] == 2:
@@ -423,20 +425,19 @@ class DataSourceOracle(sources.DataSource):
                     "match": {"macaddress": mac_address},
                 }
                 self._network_config["ethernets"][name] = interface_config
-                if is_ipv6:
-                    interface_config["dhcp6"] = is_primary
-                    interface_config["dhcp4"] = False
-                    if not is_primary:
-                        interface_config["addresses"] = [
-                            f"{vnic_dict['ipv6Addresses'][0]}/{network.prefixlen}"
-                        ]
-                else:
-                    interface_config["dhcp6"] = False
-                    interface_config["dhcp4"] = is_primary
-                    if not is_primary:
-                        interface_config["addresses"] = [
+
+                interface_config["dhcp6"] = False
+                interface_config["dhcp4"] = is_primary
+                if not is_primary:
+                    interface_config["addresses"] = []
+                    if vnic_dict.get("privateIp"):
+                        interface_config["addresses"].append(
                             f"{vnic_dict['privateIp']}/{network.prefixlen}"
-                        ]
+                        )
+                    if vnic_dict.get("ipv6Addresses"):
+                        interface_config["addresses"].append(
+                            f"{vnic_dict['ipv6Addresses'][0]}/{network.prefixlen}"
+                        )
                 self._network_config["ethernets"][name] = interface_config
 
 
