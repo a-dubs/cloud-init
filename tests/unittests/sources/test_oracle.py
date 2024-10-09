@@ -59,7 +59,7 @@ OPC_VM_SECONDARY_VNIC_RESPONSE = """\
   "virtualRouterIp" : "10.0.0.1",
   "subnetCidrBlock" : "10.0.0.0/24"
 } ]"""
-
+###############################################################################
 OPC_VM_DUAL_STACK_SECONDARY_VNIC_RESPONSE = """\
 [
   {
@@ -73,7 +73,7 @@ OPC_VM_DUAL_STACK_SECONDARY_VNIC_RESPONSE = """\
     "subnetCidrBlock": "10.0.0.0/24",
     "virtualRouterIp": "10.0.0.1",
     "vlanTag": 929,
-    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtr2b6363afca55nzerlvwmfhxpqr4ij7dni4uiltqryx3vwyzpxdq"
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtr2b6363afca55nzerlvwmfhxp_truncated"
   },
   {
     "ipv6Addresses": [
@@ -84,9 +84,33 @@ OPC_VM_DUAL_STACK_SECONDARY_VNIC_RESPONSE = """\
     "macAddr": "02:00:17:18:F6:FF",
     "subnetCidrBlock": "\u003cnull\u003e",
     "vlanTag": 2659,
-    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtpfktyl2e3xm2ez4spj7wiliyclj5bpakhcric7ipykzdx7lxcikq"
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtpfktyl2e3xm2ez4spj7wiliyc_truncated"
   }
 ]"""
+OPC_VM_IPV6_ONLY_SECONDARY_VNIC_RESPONSE = """\
+[
+  {
+    "ipv6Addresses": [
+      "2603:c020:400d:5dbb:e94a:a85d:26e3:e0d4"
+    ],
+    "ipv6SubnetCidrBlock": "2603:c020:400d:5dbb::/64",
+    "ipv6VirtualRouterIp": "fe80::200:17ff:fe40:8972",
+    "macAddr": "02:00:17:0D:6B:BE",
+    "vlanTag": 929,
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtr2b6363afca55nzerlvwmfhxp_truncated"
+  },
+  {
+    "ipv6Addresses": [
+      "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a"
+    ],
+    "ipv6SubnetCidrBlock": "2603:c020:400d:5d7e::/64",
+    "ipv6VirtualRouterIp": "fe80::200:17ff:fe40:8972",
+    "macAddr": "02:00:17:18:F6:FF",
+    "vlanTag": 2659,
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtpfktyl2e3xm2ez4spj7wiliyc_truncated"
+  }
+]"""
+###############################################################################
 
 OPC_DUAL_STACK_VM_VNIC_RESPONSE = """\
 [
@@ -101,7 +125,7 @@ OPC_DUAL_STACK_VM_VNIC_RESPONSE = """\
     "subnetCidrBlock": "10.0.0.0/24",
     "virtualRouterIp": "10.0.0.1",
     "vlanTag": 929,
-    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtr2b6363afca55nzerlvwmfhxpqr4ij7dni4uiltqryx3vwyzpxdq"
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtr2b6363afca55nzerlvwmfhxp_truncated"
   }
 ]"""
 
@@ -118,7 +142,7 @@ OPC_DUAL_STACK_WITHI_IPV6_ONLY_SECONDARY_VNIC_RESPONSE = """\
     "subnetCidrBlock": "10.0.0.0/24",
     "virtualRouterIp": "10.0.0.1",
     "vlanTag": 929,
-    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtr2b6363afca55nzerlvwmfhxpqr4ij7dni4uiltqryx3vwyzpxdq"
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtr2b6363afca55nzerlvwmfhx4_truncated"
   },
   {
     "ipv6Addresses": [
@@ -129,7 +153,7 @@ OPC_DUAL_STACK_WITHI_IPV6_ONLY_SECONDARY_VNIC_RESPONSE = """\
     "macAddr": "02:00:17:18:F6:FF",
     "subnetCidrBlock": "\u003cnull\u003e",
     "vlanTag": 2659,
-    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtpfktyl2e3xm2ez4spj7wiliyclj5bpakhcric7ipykzdx7lxcikq"
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtpfktyl2e3xm2ez4spj7wiliy_truncated"
   }
 ]"""
 
@@ -143,7 +167,7 @@ OPC_IPV6_VM_VNIC_RESPONSE = """\
     "ipv6VirtualRouterIp": "fe80::200:17ff:fe40:8972",
     "macAddr": "02:00:17:15:92:4E",
     "vlanTag": 1970,
-    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtqdmvgobi2kewwmgxybt5uyf6mnimho2pai4xa76pr4dbfckookgq"
+    "vnicId": "ocid1.vnic.oc1.iad.abuwcljtpfktyl2e3xm2ez4spj7wiliy_truncated"
   }
 ]"""
 
@@ -520,6 +544,98 @@ class TestNetworkConfigFromOpcImds:
 
         assert 1 == len(secondary_cfg["addresses"])
         assert "10.0.0.231/24" == secondary_cfg["addresses"][0]
+
+
+    @pytest.mark.parametrize(
+        "set_primary",
+        [
+            pytest.param(True, id="set_primary"),
+            pytest.param(False, id="dont_set_primary"),
+        ],
+    )
+    def test_imds_nic_setup_v1_ipv6_only(self, set_primary, oracle_ds):
+        oracle_ds._vnics_data = json.loads(OPC_VM_IPV6_ONLY_SECONDARY_VNIC_RESPONSE)
+        oracle_ds._network_config = {
+            "version": 1,
+            "config": [{"primary": "nic"}],
+        }
+        with mock.patch(
+            f"{DS_PATH}.get_interfaces_by_mac",
+            return_value={
+                "02:00:17:0d:6b:be": "ens3",
+                "02:00:17:18:f6:ff": "ens4",
+            },
+        ):
+            oracle_ds._add_network_config_from_opc_imds(
+                set_primary=set_primary
+            )
+
+        secondary_nic_index = 1
+        nic_cfg = oracle_ds.network_config["config"]
+        if set_primary:
+            primary_cfg = nic_cfg[1]
+            secondary_nic_index += 1
+
+            assert "ens3" == primary_cfg["name"]
+            assert "physical" == primary_cfg["type"]
+            assert "02:00:17:0d:6b:be" == primary_cfg["mac_address"]
+            assert 9000 == primary_cfg["mtu"]
+            assert 1 == len(primary_cfg["subnets"])
+            assert "address" not in primary_cfg["subnets"][0]
+            assert "dhcp6" == primary_cfg["subnets"][0]["type"]
+        secondary_cfg = nic_cfg[secondary_nic_index]
+        assert "ens4" == secondary_cfg["name"]
+        assert "physical" == secondary_cfg["type"]
+        assert "02:00:17:18:f6:ff" == secondary_cfg["mac_address"]
+        assert 9000 == secondary_cfg["mtu"]
+        assert 1 == len(secondary_cfg["subnets"])
+        assert "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a/128" == secondary_cfg["subnets"][0]["address"]
+        assert "static" == secondary_cfg["subnets"][0]["type"]
+
+
+
+    @pytest.mark.parametrize(
+        "set_primary",
+        [True, False],
+    )
+    def test_secondary_nic_v2_ipv6_only(self, set_primary, oracle_ds):
+        oracle_ds._vnics_data = json.loads(OPC_VM_IPV6_ONLY_SECONDARY_VNIC_RESPONSE)
+        oracle_ds._network_config = {
+            "version": 2,
+            "ethernets": {"primary": {"nic": {}}},
+        }
+        with mock.patch(
+            f"{DS_PATH}.get_interfaces_by_mac",
+            return_value={
+                "02:00:17:0d:6b:be": "ens3",
+                "02:00:17:18:f6:ff": "ens4",
+            },
+        ):
+            oracle_ds._add_network_config_from_opc_imds(
+                set_primary=set_primary
+            )
+
+        nic_cfg = oracle_ds.network_config["ethernets"]
+        if set_primary:
+            assert "ens3" in nic_cfg
+            primary_cfg = nic_cfg["ens3"]
+
+            assert primary_cfg["dhcp4"] is False
+            assert primary_cfg["dhcp6"] is True
+            assert "02:00:17:0d:6b:be" == primary_cfg["match"]["macaddress"]
+            assert 9000 == primary_cfg["mtu"]
+            assert "addresses" not in primary_cfg
+
+        assert "ens4" in nic_cfg
+        secondary_cfg = nic_cfg["ens4"]
+        assert secondary_cfg["dhcp4"] is False
+        assert secondary_cfg["dhcp6"] is False
+        assert "02:00:17:18:f6:ff" == secondary_cfg["match"]["macaddress"]
+        assert 9000 == secondary_cfg["mtu"]
+
+        assert 1 == len(secondary_cfg["addresses"])
+        assert "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a/128" == secondary_cfg["addresses"][0]
+
 
     @pytest.mark.parametrize("error_add_network", [None, Exception])
     @pytest.mark.parametrize(

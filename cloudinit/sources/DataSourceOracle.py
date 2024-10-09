@@ -182,9 +182,7 @@ class DataSourceOracle(sources.DataSource):
     def _get_data(self):
 
         self.system_uuid = _read_system_uuid()
-        iface = (net.find_fallback_nic(),)
-        # Convert tuple to string
-        nic_name = "".join(iface)
+        nic_name = net.find_fallback_nic()
 
         ipv4_connectivity_url_data = {
             "url": IPV4_METADATA_PATTERN.format(version=1, path="instance"),
@@ -370,11 +368,12 @@ class DataSourceOracle(sources.DataSource):
         vnics_data = self._vnics_data if set_primary else self._vnics_data[1:]
 
         # If the metadata address is an IPv6 address
-        is_ipv6 = _is_ipv6_metadata_url(self.metadata_address)
 
         for index, vnic_dict in enumerate(vnics_data):
             is_primary = set_primary and index == 0
             mac_address = vnic_dict["macAddr"].lower()
+            is_ipv6_only = (vnic_dict.get("ipv6SubnetCidrBlock", False) 
+                            and not vnic_dict.get("privateIp", False))
             if mac_address not in interfaces_by_mac:
                 LOG.warning(
                     "Interface with MAC %s not found; skipping",
@@ -382,16 +381,20 @@ class DataSourceOracle(sources.DataSource):
                 )
                 continue
             name = interfaces_by_mac[mac_address]
-            if is_ipv6:
+            if is_ipv6_only:
                 network = ipaddress.ip_network(
-                    vnic_dict["ipv6SubnetCidrBlock"]
+                    vnic_dict["ipv6Addresses"][0],
+                    # strict=False,
                 )
             else:
                 network = ipaddress.ip_network(vnic_dict["subnetCidrBlock"])
 
             if self._network_config["version"] == 1:
                 if is_primary:
-                    subnets = [{"type": "dhcp"}]
+                    if is_ipv6_only:
+                        subnets = [{"type": "dhcp6"}]
+                    else:
+                        subnets = [{"type": "dhcp"}]
                 else:
                     subnets = []
                     if vnic_dict.get("privateIp"):
@@ -408,7 +411,6 @@ class DataSourceOracle(sources.DataSource):
                                 f"{vnic_dict['ipv6Addresses'][0]}/{network.prefixlen}"
                             ),
                         })
-
                 interface_config = {
                     "name": name,
                     "type": "physical",
@@ -426,8 +428,8 @@ class DataSourceOracle(sources.DataSource):
                 }
                 self._network_config["ethernets"][name] = interface_config
 
-                interface_config["dhcp6"] = False
-                interface_config["dhcp4"] = is_primary
+                interface_config["dhcp6"] = is_primary and is_ipv6_only
+                interface_config["dhcp4"] = is_primary and not is_ipv6_only
                 if not is_primary:
                     interface_config["addresses"] = []
                     if vnic_dict.get("privateIp"):
