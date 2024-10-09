@@ -19,7 +19,7 @@ import json
 import logging
 import time
 from collections import namedtuple
-from typing import Dict, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 from cloudinit import atomic_helper, dmi, net, sources, subp, util
 from cloudinit.distros.networking import NetworkConfig
@@ -184,9 +184,20 @@ class DataSourceOracle(sources.DataSource):
         self.system_uuid = _read_system_uuid()
         nic_name = net.find_fallback_nic()
 
-        ipv4_connectivity_url_data = {
-            "url": IPV4_METADATA_PATTERN.format(version=1, path="instance"),
-        }
+        # Test against both v1 and v2 metadata URLs
+        connectivity_urls_data = [
+            {
+                "url": IPV4_METADATA_PATTERN.format(
+                    version=1, path="instance"
+                ),
+            },
+            {
+                "url": IPV4_METADATA_PATTERN.format(
+                    version=2, path="instance"
+                ),
+                "headers": V2_HEADERS,
+            },
+        ]
 
         # if we have connectivity to imds, then skip ephemeral network setup
         if self.perform_dhcp_setup:  # and not available_urls:
@@ -194,25 +205,20 @@ class DataSourceOracle(sources.DataSource):
             # is there a way to detect when we need this?
             # would this only work/be needed if isci is being used?
             # if so, could we just check for iscsi root and then do this?
-            LOG.debug("[CPC-3194] Performing ephemeral network setup")
             try:
                 network_context = ephemeral.EphemeralIPNetwork(
                     distro=self.distro,
                     interface=nic_name,
                     ipv6=True,
                     ipv4=True,
-                    connectivity_url_data=ipv4_connectivity_url_data,
+                    connectivity_urls_data=connectivity_urls_data,
                     ipv6_connectivity_check_callback=check_ipv6_connectivity,
                 )
             except Exception as e:
-                LOG.debug("[CPC-3194] Failed to perform DHCPv4 setup: %s", e)
                 network_context = util.nullcontext()
         else:
-            # if available_urls:
-            #     LOG.debug("[CPC-3194] Connectivity to imds, skipping ephemeral network setup")
             network_context = util.nullcontext()
         fetch_primary_nic = not self._is_iscsi_root()
-        LOG.debug("[CPC-3194] is iSCSI root: %s", self._is_iscsi_root())
         fetch_secondary_nics = self.ds_cfg.get(
             "configure_secondary_nics",
             BUILTIN_DS_CONFIG["configure_secondary_nics"],
@@ -223,7 +229,6 @@ class DataSourceOracle(sources.DataSource):
                 md_patterns = [IPV6_METADATA_PATTERN]
             else:
                 md_patterns = [IPV4_METADATA_PATTERN]
-            LOG.debug("[CPC-3194] Fetching metadata (read_opc_metadata)")
             fetched_metadata, url_that_worked = read_opc_metadata(
                 fetch_vnics_data=fetch_primary_nic or fetch_secondary_nics,
                 max_wait=self.url_max_wait,
@@ -236,15 +241,9 @@ class DataSourceOracle(sources.DataSource):
                 url=url_that_worked
             )
             if _is_ipv4_metadata_url(self.metadata_address):
-                LOG.debug(
-                    "[CPC-3194] Read metadata from IPv4 URL: %s",
-                    self.metadata_address,
-                )
+                LOG.debug("Read metadata from IPv4 IMDS server")
             else:
-                LOG.debug(
-                    "[CPC-3194] Read metadata from IPv6 URL: %s",
-                    self.metadata_address,
-                )
+                LOG.debug("Read metadata from IPv6 IMDS server")
 
         if not fetched_metadata:
             return False
@@ -297,7 +296,6 @@ class DataSourceOracle(sources.DataSource):
 
         If none is present, then we fall back to fallback configuration.
         """
-        LOG.debug("[CPC-3194] Oracle datasource: network_config() called")
         if self._has_network_config():
             return self._network_config
 
@@ -372,8 +370,9 @@ class DataSourceOracle(sources.DataSource):
         for index, vnic_dict in enumerate(vnics_data):
             is_primary = set_primary and index == 0
             mac_address = vnic_dict["macAddr"].lower()
-            is_ipv6_only = (vnic_dict.get("ipv6SubnetCidrBlock", False) 
-                            and not vnic_dict.get("privateIp", False))
+            is_ipv6_only = vnic_dict.get(
+                "ipv6SubnetCidrBlock", False
+            ) and not vnic_dict.get("privateIp", False)
             if mac_address not in interfaces_by_mac:
                 LOG.warning(
                     "Interface with MAC %s not found; skipping",
@@ -384,7 +383,6 @@ class DataSourceOracle(sources.DataSource):
             if is_ipv6_only:
                 network = ipaddress.ip_network(
                     vnic_dict["ipv6Addresses"][0],
-                    # strict=False,
                 )
             else:
                 network = ipaddress.ip_network(vnic_dict["subnetCidrBlock"])
@@ -398,19 +396,25 @@ class DataSourceOracle(sources.DataSource):
                 else:
                     subnets = []
                     if vnic_dict.get("privateIp"):
-                        subnets.append({
-                            "type": "static",
-                            "address": (
-                                f"{vnic_dict['privateIp']}/{network.prefixlen}"
-                            ),
-                        })
+                        subnets.append(
+                            {
+                                "type": "static",
+                                "address": (
+                                    f"{vnic_dict['privateIp']}/"
+                                    f"{network.prefixlen}"
+                                ),
+                            }
+                        )
                     if vnic_dict.get("ipv6Addresses"):
-                        subnets.append({
-                            "type": "static",
-                            "address": (
-                                f"{vnic_dict['ipv6Addresses'][0]}/{network.prefixlen}"
-                            ),
-                        })
+                        subnets.append(
+                            {
+                                "type": "static",
+                                "address": (
+                                    f"{vnic_dict['ipv6Addresses'][0]}/"
+                                    f"{network.prefixlen}"
+                                ),
+                            }
+                        )
                 interface_config = {
                     "name": name,
                     "type": "physical",
@@ -438,7 +442,8 @@ class DataSourceOracle(sources.DataSource):
                         )
                     if vnic_dict.get("ipv6Addresses"):
                         interface_config["addresses"].append(
-                            f"{vnic_dict['ipv6Addresses'][0]}/{network.prefixlen}"
+                            f"{vnic_dict['ipv6Addresses'][0]}/"
+                            f"{network.prefixlen}"
                         )
                 self._network_config["ethernets"][name] = interface_config
 
@@ -496,8 +501,8 @@ def read_opc_metadata(
     fetch_vnics_data: bool = False,
     max_wait=DataSourceOracle.url_max_wait,
     timeout=DataSourceOracle.url_timeout,
-    metadata_patterns: list[str] = [IPV4_METADATA_PATTERN],
-) -> tuple[Optional[OpcMetadata], Optional[str]]:
+    metadata_patterns: List[str] = [IPV4_METADATA_PATTERN],
+) -> Tuple[Optional[OpcMetadata], Optional[str]]:
     """Fetch metadata from the /opc/ routes.
 
     :return:
@@ -515,11 +520,6 @@ def read_opc_metadata(
     # Per Oracle, there are short windows (measured in milliseconds) throughout
     # an instance's lifetime where the IMDS is being updated and may 404 as a
     # result.
-    # TODO: why does v2 fail here? it works manually with curl
-    # $ curl -f -g -6 -H "Authorization: Bearer Oracle" -H "User-Agent: Cloud-Init/23.4-610-g63572bb4-1~bddeb"
-    # 'http://[fd00:c1::a9fe:a9fe]/opc/v2/instance/'
-    # the user agent is the same as the one used in the code and it succeeds when
-    # curling manually with or without the user agent
     urls = [
         metadata_pattern.format(version=version, path="instance")
         for version in [2, 1]
@@ -528,17 +528,20 @@ def read_opc_metadata(
 
     url_that_worked = None
 
-    LOG.debug("[CPC-3194] Attempting to fetch IMDS metadata from: %s", urls)
+    LOG.debug("Attempting to fetch IMDS metadata from: %s", urls)
     start_time = time.monotonic()
     url_that_worked, instance_response = wait_for_url(
         urls=urls,
         max_wait=max_wait,
         timeout=timeout,
         headers_cb=_headers_cb,
-        sleep_time=5,
+        sleep_time=0.1,
     )
     if not url_that_worked:
-        LOG.warning("Failed to fetch IMDS metadata!")
+        LOG.warning(
+            "Failed to fetch IMDS metadata from any of: %s",
+            ", ".join(urls),
+        )
         return (None, None)
     else:
         LOG.debug(
@@ -560,7 +563,7 @@ def read_opc_metadata(
             max_wait=max_wait - (time.monotonic() - start_time),
             timeout=timeout,
             headers_cb=_headers_cb,
-            sleep_time=5,
+            sleep_time=0.1,
         )
         if vnics_url:
             vnics_data = json.loads(vnics_response.decode("utf-8"))
@@ -578,7 +581,7 @@ def read_opc_metadata(
 
 def check_ipv6_connectivity() -> str:
     """
-    Check if IMDS is reachable over IPv6.
+    Check if IMDS is reachable over IPv6 and that the status code is < 400.
 
     :return: The URL that was used to check connectivity if successful, else None
     """
@@ -596,23 +599,29 @@ def check_ipv6_connectivity() -> str:
             "Checking ipv6 connectivity against url: %s",
             url_data["url"],
         )
-        url_response = readurl(
-            check_status=False,  # don't raise exceptions on non-200 status
-            url=url_data["url"],
-            headers=url_data.get("headers"),
-            timeout=0.5,  # keep really short for quick failure path
-        )
-        LOG.debug(
-            "[CPC-3194] Response from ipv6 connectivity check: %s",
-            url_response.code,
-        )
+        try:
+            url_response = readurl(
+                check_status=False,  # don't raise exceptions on non-200 status
+                url=url_data["url"],
+                headers=url_data.get("headers"),
+                timeout=0.5,  # keep really short for quick failure path
+            )
+        except:
+            LOG.debug(
+                "Failed to reach IMDS over IPv6 at: %s",
+                url_data["url"],
+            )
+            continue
         # check if the response is ok
         if url_response.code < 400:
-            LOG.debug("[CPC-3194] Successfully checked ipv6 connectivity.")
+            LOG.debug(
+                "IPv6 IMDS was successfully reached at: %s",
+                url_data["url"],
+            )
             return url_data["url"]
         else:
-            LOG.debug("[CPC-3194] Failed to get OK from: %s", url_data["url"])
-    LOG.debug("[CPC-3194] IMDS is not usable over IPv6")
+            LOG.debug("Failed to get OK from IMDS at: %s", url_data["url"])
+    LOG.debug("IMDS could not be reached over IPv6.")
     return None
 
 

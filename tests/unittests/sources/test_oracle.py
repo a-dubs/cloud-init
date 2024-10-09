@@ -263,6 +263,10 @@ ipv4_v1_instance_url = oracle.IPV4_METADATA_PATTERN.format(
     path="instance",
     version=1,
 )
+ipv4_v2_instance_url = oracle.IPV4_METADATA_PATTERN.format(
+    path="instance",
+    version=2,
+)
 
 
 @pytest.fixture
@@ -545,7 +549,6 @@ class TestNetworkConfigFromOpcImds:
         assert 1 == len(secondary_cfg["addresses"])
         assert "10.0.0.231/24" == secondary_cfg["addresses"][0]
 
-
     @pytest.mark.parametrize(
         "set_primary",
         [
@@ -554,7 +557,9 @@ class TestNetworkConfigFromOpcImds:
         ],
     )
     def test_imds_nic_setup_v1_ipv6_only(self, set_primary, oracle_ds):
-        oracle_ds._vnics_data = json.loads(OPC_VM_IPV6_ONLY_SECONDARY_VNIC_RESPONSE)
+        oracle_ds._vnics_data = json.loads(
+            OPC_VM_IPV6_ONLY_SECONDARY_VNIC_RESPONSE
+        )
         oracle_ds._network_config = {
             "version": 1,
             "config": [{"primary": "nic"}],
@@ -589,17 +594,20 @@ class TestNetworkConfigFromOpcImds:
         assert "02:00:17:18:f6:ff" == secondary_cfg["mac_address"]
         assert 9000 == secondary_cfg["mtu"]
         assert 1 == len(secondary_cfg["subnets"])
-        assert "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a/128" == secondary_cfg["subnets"][0]["address"]
+        assert (
+            "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a/128"
+            == secondary_cfg["subnets"][0]["address"]
+        )
         assert "static" == secondary_cfg["subnets"][0]["type"]
-
-
 
     @pytest.mark.parametrize(
         "set_primary",
         [True, False],
     )
     def test_secondary_nic_v2_ipv6_only(self, set_primary, oracle_ds):
-        oracle_ds._vnics_data = json.loads(OPC_VM_IPV6_ONLY_SECONDARY_VNIC_RESPONSE)
+        oracle_ds._vnics_data = json.loads(
+            OPC_VM_IPV6_ONLY_SECONDARY_VNIC_RESPONSE
+        )
         oracle_ds._network_config = {
             "version": 2,
             "ethernets": {"primary": {"nic": {}}},
@@ -634,8 +642,10 @@ class TestNetworkConfigFromOpcImds:
         assert 9000 == secondary_cfg["mtu"]
 
         assert 1 == len(secondary_cfg["addresses"])
-        assert "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a/128" == secondary_cfg["addresses"][0]
-
+        assert (
+            "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a/128"
+            == secondary_cfg["addresses"][0]
+        )
 
     @pytest.mark.parametrize("error_add_network", [None, Exception])
     @pytest.mark.parametrize(
@@ -1345,9 +1355,15 @@ class TestNonIscsiRoot_GetDataBehaviour:
                 interface=m_find_fallback_nic.return_value,
                 ipv6=True,
                 ipv4=True,
-                connectivity_url_data={
-                    "url": url_that_worked,
-                },
+                connectivity_urls_data=[
+                    {
+                        "url": ipv4_v1_instance_url,
+                    },
+                    {
+                        "url": ipv4_v2_instance_url,
+                        "headers": oracle.V2_HEADERS,
+                    },
+                ],
                 ipv6_connectivity_check_callback=m_ipv6_check,
             )
         ] == m_ephemeral_network.call_args_list
@@ -1656,7 +1672,7 @@ class TestHelpers:
         if v2_response_code >= 400 and v1_response_code >= 400:
             assert (
                 logging.DEBUG,
-                "[CPC-3194] IMDS is not usable over IPv6",
+                "IMDS could not be reached over IPv6.",
             ) == caplog.record_tuples[-1][1:]
 
     @pytest.mark.parametrize(
