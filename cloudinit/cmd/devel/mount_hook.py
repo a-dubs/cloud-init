@@ -7,11 +7,11 @@ import logging
 import os
 import subprocess
 import sys
-from cloudinit.subp import ProcessExecutionError, subp
 
 from cloudinit import log, reporting
 from cloudinit.reporting import events
 from cloudinit.stages import Init
+from cloudinit.subp import ProcessExecutionError, subp
 
 LOG = logging.getLogger(__name__)
 NAME = "mount-hook"
@@ -45,6 +45,7 @@ def generate_blkid_command(label=None, uuid=None, partuuid=None):
 
     return cmd
 
+
 def generate_all_blkid_commands(query: str):
     """
     Generate all possible blkid commands based on query.
@@ -57,6 +58,7 @@ def generate_all_blkid_commands(query: str):
         ["blkid", "-o", "device", "-t", f"UUID={query}"],
         ["blkid", "-o", "device", "-t", f"PARTUUID={query}"],
     ]
+
 
 def get_block_device_from_query(query: str):
     """
@@ -174,7 +176,9 @@ def mount_device_command(
     # Ensure the mount point directory exists
     if not os.path.exists(mountpoint):
         LOG.info(f"Creating mount point directory {mountpoint}")
-        subp(["mkdir", "-p", mountpoint]) # THIS FAILS WITH A PERMISSION DENIED ERROR
+        subp(
+            ["mkdir", "-p", mountpoint]
+        )  # THIS FAILS WITH A PERMISSION DENIED ERROR
 
     # Get the device path
     device = get_device_path(
@@ -203,8 +207,7 @@ def get_cloud_init_fstab_entries() -> list[tuple[str, str]]:
             if "cloud-init" in line:
                 source, target, *_ = line.split()
                 results.append((source, target))
-    return results  
-
+    return results
 
 
 def handle_mount_event(udevaction: str, blockdevice: str):
@@ -216,11 +219,13 @@ def handle_mount_event(udevaction: str, blockdevice: str):
 
     if udevaction != "add":
         raise ValueError("Only 'add' udev action is supported")
-    
+
     fstab_entries = get_cloud_init_fstab_entries()
     for source, target in fstab_entries:
         if os.path.ismount(target):
-            LOG.debug(f"Ignoring fstab entry {source} {target} as it is already mounted")
+            LOG.debug(
+                f"Ignoring fstab entry {source} {target} as it is already mounted"
+            )
         found_device = get_block_device_from_query(source).stdout.strip()
         if found_device == blockdevice:
             LOG.info(f"Hotplugged block device {blockdevice} matches {source}")
@@ -235,28 +240,28 @@ def handle_mount_event(udevaction: str, blockdevice: str):
             LOG.info(
                 f"Source '{source}' is not yet mounted to '{target}'. "
                 "Will keep udev rule and systemd service until all cloudinit "
-                "fstab entries are mounted."    
+                "fstab entries are mounted."
             )
             everything_mounted = False
             break
-    
+
     if everything_mounted:
-        LOG.info("All cloud-init fstab entries are mounted. Removing udev rule and systemd service.")
-        # remove udev rule 
+        LOG.info(
+            "All cloud-init fstab entries are mounted. Removing udev rule and systemd service."
+        )
+        # remove udev rule
         udev_path = "/etc/udev/rules.d/66-cloud-init-mount-hook.rules"
-        try: 
-            subp(["rm",  udev_path])
+        try:
+            subp(["rm", udev_path])
         except ProcessExecutionError as e:
             LOG.error(f"Failed to remove {udev_path}: {e}")
-        
+
         # remove systemd service
         service_path = "/etc/systemd/system/cloud-init-mount-hook@.service"
         try:
             subp(["rm", service_path])
         except ProcessExecutionError as e:
             LOG.error(f"Failed to remove {service_path}: {e}")
-
-
 
 
 def handle_args(name, args):
@@ -280,9 +285,11 @@ def handle_args(name, args):
     # if blockdevice doesn't start with /dev, then check for it in /dev
     if args.blockdevice and not args.blockdevice.startswith("/dev"):
         if os.path.exists(f"/dev/{args.blockdevice}"):
-            args.blockdevice = f"/dev/{args.blockdevice}"   
+            args.blockdevice = f"/dev/{args.blockdevice}"
         else:
-            LOG.error(f"Could not find full path for shorthand device {args.blockdevice}")
+            LOG.error(
+                f"Could not find full path for shorthand device {args.blockdevice}"
+            )
 
     LOG.debug(
         "%s called with the following arguments: {"

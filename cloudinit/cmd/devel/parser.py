@@ -5,6 +5,7 @@
 """Define 'devel' subcommand argument parsers to include in cloud-init cmd."""
 
 import argparse
+
 from cloudinit.cmd.devel import (
     hotplug_hook,
     make_mime,

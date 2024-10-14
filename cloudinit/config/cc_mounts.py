@@ -349,9 +349,11 @@ def handle_swapcfg(swapcfg):
 
     return None
 
+
 def check_if_block_device_exists(device_path: str):
     result = subp.subp(["blkid", "-o", "device", device_path], capture=True)
     return result.return_code == 0
+
 
 def parse_fstab() -> Tuple[List[str], Dict[str, str], List[str]]:
     """Parse /etc/fstab.
@@ -590,15 +592,17 @@ def handle(name: str, cfg: Config, cloud: Cloud, args: list) -> None:
     activate_swap_if_needed(updated_cfg)
     mount_if_needed(uses_systemd, bool(sops), dirs)
 
-    LOG.info("[SC-1748] Creating systemd service file for block device attachment")
+    LOG.info(
+        "[SC-1748] Creating systemd service file for block device attachment"
+    )
     createSystemdServiceFile()
     LOG.info("[SC-1748] Creating udev rule file for block device attachment")
     createUdevRuleFile()
 
 
 def createSystemdServiceFile() -> str:
-    
-    content=f"""\
+
+    content = f"""\
 [Unit]
 Description=Handle block device attachment for %I
 Requires=dev-%i.device
@@ -610,7 +614,7 @@ ExecStart=cloud-init devel mount-hook handle --udevaction="add" --blockdevice=%I
 
 [Install]
 WantedBy=multi-user.target"""
-    
+
     path = "/etc/systemd/system/cloud-init-mount-hook@.service"
     util.write_file(path, content)
     LOG.debug("Wrote systemd service file to %s:\n%s", path, content)
