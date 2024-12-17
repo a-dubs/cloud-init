@@ -15,6 +15,11 @@ KEEP_IMAGE = False
 # Run tests marked as unstable. Expect failures and dragons.
 RUN_UNSTABLE = False
 
+# instance type
+INSTANCE_TYPE = None
+
+ARCH = None
+
 # One of:
 #  azure
 #  ec2

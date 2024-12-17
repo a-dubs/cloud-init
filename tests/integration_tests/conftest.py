@@ -38,6 +38,10 @@ log = logging.getLogger("integration_testing")
 log.addHandler(logging.StreamHandler(sys.stdout))
 log.setLevel(logging.INFO)
 
+# prevent botocore and urllib3 from spamming logs
+logging.getLogger("botocore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
 platforms: Dict[str, Type[IntegrationCloud]] = {
     "ec2": Ec2Cloud,
     "gce": GceCloud,
