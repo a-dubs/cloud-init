@@ -218,7 +218,7 @@ def config_from_klibc_net_cfg(files=None, mac_addrs=None):
         else:
             names[name] = {"files": [cfg_file], "entry": entry}
             entries.append(entry)
-
+    logging.debug("[CPC-6282] klibc network config: %s", entries)
     return {"config": entries, "version": 1}
 
 
