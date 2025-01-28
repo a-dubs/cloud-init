@@ -23,7 +23,7 @@ from pycloudlib import (
 )
 from pycloudlib.cloud import ImageType
 from pycloudlib.ec2.instance import EC2Instance
-from pycloudlib.lxd.cloud import _BaseLXD
+from pycloudlib.lxd.cloud import BaseCloud, _BaseLXD
 from pycloudlib.lxd.instance import BaseInstance, LXDInstance
 
 import cloudinit
@@ -83,7 +83,7 @@ class IntegrationCloud(ABC):
         )
 
     @abstractmethod
-    def _get_cloud_instance(self):
+    def _get_cloud_instance(self) -> BaseCloud:
         raise NotImplementedError
 
     def _get_initial_image(self, **kwargs) -> str:
@@ -198,6 +198,7 @@ class IntegrationCloud(ABC):
 
 class Ec2Cloud(IntegrationCloud):
     datasource = "ec2"
+    cloud_instance: EC2
 
     def _get_cloud_instance(self) -> EC2:
         return EC2(tag="ec2-integration-test")
@@ -226,6 +227,7 @@ class Ec2Cloud(IntegrationCloud):
 
 class GceCloud(IntegrationCloud):
     datasource = "gce"
+    cloud_instance: GCE
 
     def _get_cloud_instance(self) -> GCE:
         return GCE(
@@ -263,6 +265,7 @@ class AzureCloud(IntegrationCloud):
 
 class OciCloud(IntegrationCloud):
     datasource = "oci"
+    cloud_instance: OCI
 
     def _get_cloud_instance(self) -> OCI:
         return OCI(
@@ -382,6 +385,7 @@ class LxdVmCloud(_LxdIntegrationCloud):
 
 class OpenstackCloud(IntegrationCloud):
     datasource = "openstack"
+    cloud_instance: Openstack
 
     def _get_cloud_instance(self):
         return Openstack(
@@ -414,7 +418,7 @@ class IbmCloud(IntegrationCloud):
 
 class QemuCloud(IntegrationCloud):
     datasource = "qemu"
-    cloud_instance = Qemu
+    cloud_instance: Qemu
 
     def _get_cloud_instance(self):
         return Qemu(tag="qemu-integration-test")
