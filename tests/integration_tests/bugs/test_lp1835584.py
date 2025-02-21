@@ -29,7 +29,7 @@ https://bugs.launchpad.net/cloud-init/+bug/1835584
 import re
 
 import pytest
-from pycloudlib.cloud import ImageType
+from pycloudlib.types import ImageType
 
 from tests.integration_tests.clouds import IntegrationCloud
 from tests.integration_tests.conftest import get_validated_source

@@ -2,7 +2,7 @@ import datetime
 
 import pytest
 from pycloudlib.azure.util import AzureCreateParams, AzureParams
-from pycloudlib.cloud import ImageType
+from pycloudlib.types import ImageType
 
 from tests.integration_tests.clouds import IntegrationCloud
 from tests.integration_tests.conftest import get_validated_source

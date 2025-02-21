@@ -3,7 +3,7 @@ import logging
 import os
 
 import pytest
-from pycloudlib.cloud import ImageType
+from pycloudlib.types import ImageType
 
 from cloudinit import lifecycle
 from tests.integration_tests.clouds import IntegrationCloud

@@ -21,7 +21,7 @@ from pycloudlib import (
     Openstack,
     Qemu,
 )
-from pycloudlib.cloud import ImageType
+from pycloudlib.types import ImageType
 from pycloudlib.ec2.instance import EC2Instance
 from pycloudlib.lxd.cloud import BaseCloud, _BaseLXD
 from pycloudlib.lxd.instance import BaseInstance, LXDInstance

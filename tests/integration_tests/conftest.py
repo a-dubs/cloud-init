@@ -12,7 +12,7 @@ from tarfile import TarFile
 from typing import Dict, Generator, Iterator, List, Type
 
 import pytest
-from pycloudlib.cloud import ImageType
+from pycloudlib.types import ImageType
 from pycloudlib.lxd.instance import LXDInstance
 
 import tests.integration_tests.reaper as reaper
