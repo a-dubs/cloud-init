@@ -22,6 +22,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from cloudinit import atomic_helper, dmi, net, sources, util
 from cloudinit.distros.networking import NetworkConfig
+from cloudinit.event import EventScope, EventType
 from cloudinit.net import (
     cmdline,
     ephemeral,
@@ -34,7 +35,7 @@ LOG = logging.getLogger(__name__)
 
 BUILTIN_DS_CONFIG = {
     # Don't use IMDS to configure secondary NICs by default
-    "configure_secondary_nics": False,
+    "configure_secondary_nics": True,
 }
 CHASSIS_ASSET_TAG = "OracleCloud.com"
 IPV4_METADATA_ROOT = "http://169.254.169.254/opc/v{version}/"
@@ -64,24 +65,26 @@ class KlibcOracleNetworkConfigSource(cmdline.KlibcNetworkConfigSource):
     """
 
     def is_applicable(self) -> bool:
-        """Override is_applicable"""
+        """Determine if the network config source is applicable.
+
+        Returns:
+            bool: True if any `/run/net-*.cfg` files exist, False otherwise.
+        """
         return bool(self._files)
 
 
 def _ensure_netfailover_safe(network_config: NetworkConfig) -> None:
-    """
-    Search network config physical interfaces to see if any of them are
-    a netfailover master.  If found, we prevent matching by MAC as the other
+    """Search network config physical interfaces to see if any of them are
+    a netfailover master. If found, we prevent matching by MAC as the other
     failover devices have the same MAC but need to be ignored.
 
     Note: we rely on cloudinit.net changes which prevent netfailover devices
-    from being present in the provided network config.  For more details about
+    from being present in the provided network config. For more details about
     netfailover devices, refer to cloudinit.net module.
 
-    :param network_config
-       A v1 or v2 network config dict with the primary NIC, and possibly
-       secondary nic configured.  This dict will be mutated.
-
+    Args:
+        network_config (NetworkConfig): A v1 or v2 network config dict with the primary NIC, and possibly
+            secondary nic configured. This dict will be mutated.
     """
     # ignore anything that's not an actual network-config
     if "version" not in network_config:
@@ -121,6 +124,7 @@ def _ensure_netfailover_safe(network_config: NetworkConfig) -> None:
 
 
 class DataSourceOracle(sources.DataSource):
+    """Datasource for Oracle Cloud Infrastructure."""
 
     dsname = "Oracle"
     system_uuid = None
@@ -138,7 +142,36 @@ class DataSourceOracle(sources.DataSource):
     url_max_wait = 30
     url_timeout = 5
 
+    supported_update_events = {
+        EventScope.NETWORK: {
+            EventType.BOOT_NEW_INSTANCE,
+            EventType.BOOT,
+            EventType.BOOT_LEGACY,
+            EventType.HOTPLUG,
+        }
+    }
+
+    default_update_events = {
+        EventScope.NETWORK: {
+            EventType.BOOT_NEW_INSTANCE,
+            EventType.HOTPLUG,
+        }
+    }
+
+    # extra_hotplug_udev_rules = _EXTRA_HOTPLUG_UDEV_RULES
+    hotplug_retry_settings = sources.HotplugRetrySettings(True, 5, 30)
+
     def __init__(self, sys_cfg, *args, **kwargs):
+        """Initialize DataSourceOracle.
+
+        Args:
+            sys_cfg: System configuration.
+            *args: Additional positional arguments.
+            **kwargs: Additional keyword arguments.
+        """
+        # log debug the args and kwargs
+        LOG.debug("DataSourceOracle.__init__() args: %s", str(args))
+        LOG.debug("DataSourceOracle.__init__() kwargs: %s", str(kwargs))
         super(DataSourceOracle, self).__init__(sys_cfg, *args, **kwargs)
         self._vnics_data = None
 
@@ -156,6 +189,11 @@ class DataSourceOracle(sources.DataSource):
         self.url_timeout = url_params.timeout_seconds
 
     def _unpickle(self, ci_pkl_version: int) -> None:
+        """Restore pickled attributes after unpickling.
+
+        Args:
+            ci_pkl_version (int): The version of the pickled object.
+        """
         super()._unpickle(ci_pkl_version)
         if not hasattr(self, "_vnics_data"):
             setattr(self, "_vnics_data", None)
@@ -169,15 +207,28 @@ class DataSourceOracle(sources.DataSource):
             self._network_config = {"config": [], "version": 1}
 
     def _has_network_config(self) -> bool:
+        """Check if network config is present.
+
+        Returns:
+            bool: True if network config exists, False otherwise.
+        """
         return bool(self._network_config.get("config", []))
 
     @staticmethod
     def ds_detect() -> bool:
-        """Check platform environment to report if this datasource may run."""
+        """Check platform environment to report if this datasource may run.
+
+        Returns:
+            bool: True if platform is viable, False otherwise.
+        """
         return _is_platform_viable()
 
     def _get_data(self):
+        """Fetch and populate instance metadata and network configuration.
 
+        Returns:
+            bool: True if metadata was successfully fetched, False otherwise.
+        """
         self.system_uuid = _read_system_uuid()
 
         connectivity_urls_data = (
@@ -263,31 +314,57 @@ class DataSourceOracle(sources.DataSource):
         return True
 
     def check_instance_id(self, sys_cfg) -> bool:
-        """quickly check (local only) if self.instance_id is still valid
+        """Quickly check (local only) if self.instance_id is still valid.
 
         On Oracle, the dmi-provided system uuid differs from the instance-id
-        but has the same life-span."""
+        but has the same life-span.
+
+        Args:
+            sys_cfg: System configuration.
+
+        Returns:
+            bool: True if instance id matches system uuid, False otherwise.
+        """
         return sources.instance_id_matches_system_uuid(self.system_uuid)
 
     def get_public_ssh_keys(self):
+        """Get normalized public SSH keys from metadata.
+
+        Returns:
+            list: List of normalized public SSH keys.
+        """
         return sources.normalize_pubkey_data(self.metadata.get("public_keys"))
 
     def _is_iscsi_root(self) -> bool:
-        """Return whether we are on a iscsi machine."""
+        """Return whether we are on a iscsi machine.
+
+        Returns:
+            bool: True if iscsi root, False otherwise.
+        """
         return self._network_config_source.is_applicable()
 
     def _get_iscsi_config(self) -> dict:
+        """Get iscsi network configuration.
+
+        Returns:
+            dict: iscsi network configuration.
+        """
         return self._network_config_source.render_config()
 
     @property
     def network_config(self):
-        """Network config is read from initramfs provided files
+        """Get the network configuration.
+
+        Network config is read from initramfs provided files.
 
         Priority for primary network_config selection:
-        - iscsi
-        - imds
+            - iscsi
+            - imds
 
         If none is present, then we fall back to fallback configuration.
+
+        Returns:
+            dict: The network configuration.
         """
         if self._has_network_config():
             return self._network_config
@@ -330,11 +407,12 @@ class DataSourceOracle(sources.DataSource):
 
         It will mutate the network config to include the secondary VNICs.
 
-        :param set_primary: If True set primary interface.
-        :raises:
-        Exceptions are not handled within this function.  Likely
-            exceptions are KeyError/IndexError
-            (if the IMDS returns valid JSON with unexpected contents).
+        Args:
+            set_primary (bool): If True set primary interface.
+
+        Raises:
+            Exception: Likely exceptions are KeyError/IndexError
+                (if the IMDS returns valid JSON with unexpected contents).
         """
         if self._vnics_data is None:
             LOG.warning("NIC data is UNSET but should not be")
@@ -348,11 +426,11 @@ class DataSourceOracle(sources.DataSource):
             # happen.  Once it's default, this would be emitted on every Bare
             # Metal Machine launch, which means INFO or DEBUG would be more
             # appropriate.)
-            LOG.warning(
+            LOG.debug(
                 "VNIC metadata indicates this is a bare metal machine; "
-                "skipping secondary VNIC configuration."
+                "Configuring secondary VNICs. This was previously "
+                "unsupported but is now supported to enable hot plugging."
             )
-            return
 
         interfaces_by_mac = get_interfaces_by_mac()
 
@@ -442,36 +520,79 @@ class DataSourceOracle(sources.DataSource):
 
 
 class DataSourceOracleNet(DataSourceOracle):
+    """Datasource for Oracle Cloud Infrastructure without DHCP setup."""
     perform_dhcp_setup = False
 
 
 def _is_ipv4_metadata_url(metadata_address: str):
+    """Check if the metadata address is an IPv4 metadata URL.
+
+    Args:
+        metadata_address (str): The metadata address.
+
+    Returns:
+        bool: True if IPv4 metadata URL, False otherwise.
+    """
     if not metadata_address:
         return False
     return metadata_address.startswith(IPV4_METADATA_ROOT.split("opc")[0])
 
 
 def _read_system_uuid() -> Optional[str]:
+    """Read the system UUID from DMI data.
+
+    Returns:
+        Optional[str]: The system UUID in lowercase, or None if not found.
+    """
     sys_uuid = dmi.read_dmi_data("system-uuid")
     return None if sys_uuid is None else sys_uuid.lower()
 
 
 def _is_platform_viable() -> bool:
+    """Check if the platform is Oracle Cloud by reading the chassis asset tag.
+
+    Returns:
+        bool: True if platform is Oracle Cloud, False otherwise.
+    """
     asset_tag = dmi.read_dmi_data("chassis-asset-tag")
     return asset_tag == CHASSIS_ASSET_TAG
 
 
 def _url_version(url: str) -> int:
+    """Determine the metadata version from the URL.
+
+    Args:
+        url (str): The metadata URL.
+
+    Returns:
+        int: 2 if v2, 1 if v1.
+    """
     return 2 if "/opc/v2/" in url else 1
 
 
 def _headers_cb(url: str) -> Optional[Dict[str, str]]:
+    """Return appropriate headers for the given metadata URL.
+
+    Args:
+        url (str): The metadata URL.
+
+    Returns:
+        Optional[Dict[str, str]]: Headers if v2, else None.
+    """
     return V2_HEADERS if _url_version(url) == 2 else None
 
 
 def _get_versioned_metadata_base_url(url: str) -> str:
-    """
-    Remove everything following the version number in the metadata address.
+    """Remove everything following the version number in the metadata address.
+
+    Args:
+        url (str): The metadata URL.
+
+    Returns:
+        str: The base metadata URL.
+
+    Raises:
+        ValueError: If the metadata address is invalid.
     """
     if not url:
         return url
@@ -490,8 +611,13 @@ def read_opc_metadata(
     timeout=DataSourceOracle.url_timeout,
     metadata_patterns: List[str] = [IPV4_METADATA_PATTERN],
 ) -> Optional[ReadOpcMetadataResponse]:
-    """
-    Fetch metadata from the /opc/ routes from the IMDS.
+    """Fetch metadata from the /opc/ routes from the IMDS.
+
+    Args:
+        fetch_vnics_data (bool): Whether to fetch VNICs data.
+        max_wait (int): Maximum wait time in seconds.
+        timeout (int): Timeout for each request in seconds.
+        metadata_patterns (List[str]): List of metadata URL patterns.
 
     Returns:
         Optional[ReadOpcMetadataResponse]: If fetching metadata fails, None.
@@ -502,7 +628,7 @@ def read_opc_metadata(
                 `fetch_vnics_data` is True, else None. Alternatively,
                 None if fetching metadata failed
             - The url that was used to fetch the metadata.
-                This allows for later determining if v1 or v2 endppoint was
+                This allows for later determining if v1 or v2 endpoint was
                 used and whether the IMDS was reached via IPv4 or IPv6.
     """
     urls = [
@@ -581,6 +707,14 @@ datasources = [
 
 # Return a list of data sources that match this set of dependencies
 def get_datasource_list(depends):
+    """Return a list of data sources that match this set of dependencies.
+
+    Args:
+        depends: Dependencies to match.
+
+    Returns:
+        list: List of matching data sources.
+    """
     return sources.list_from_depends(depends, datasources)
 
 
