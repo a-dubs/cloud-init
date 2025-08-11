@@ -1,7 +1,13 @@
 import pytest
 
+from tests.integration_tests.clouds import IntegrationCloud
 from tests.integration_tests.instances import IntegrationInstance
-from tests.integration_tests.integration_settings import PLATFORM
+from tests.integration_tests.integration_settings import (
+    EXISTING_INSTANCE_ID,
+    OS_IMAGE,
+    PLATFORM,
+)
+from tests.integration_tests.util import verify_clean_log
 
 IPV4_METADATA_ADDRESS = "169.254.169.254"
 IPV6_METADATA_ADDRESS = "fd00:c1::a9fe:a9fe"
@@ -178,3 +184,107 @@ def test_single_stack(client: IntegrationInstance):
     # Re-enable IPv4
     client.execute(f"iptables -D OUTPUT -d {IPV4_METADATA_ADDRESS} -j REJECT")
     client.execute(f"iptables -D INPUT -s {IPV4_METADATA_ADDRESS} -j DROP")
+
+
+# TODO: will fix later but can't be run just yet since needs pycloudlib v11 changes
+# @pytest.mark.unstable
+# @pytest.mark.skipif(PLATFORM != "oci", reason="Test is OCI specific")
+# @pytest.mark.skip(
+#     OS_IMAGE not in ("noble", "oracular", "questing"),
+#     reason="Test must be run on Ubuntu 24.04 and newer (>= noble)",
+# )
+# def test_oci_ipv6_without_initramfs_networking_launch_instance(
+#     session_cloud: IntegrationCloud,
+# ):
+#     """
+#     Test oracle datasource when network setup is skipped in initramfs.
+
+#     This tests the new code path that has been unlocked thanks to the
+#     recent changes in the open-iscsi ubuntu package
+#     """
+#     with session_cloud.launch(
+#         launch_kwargs={
+#             "image_id": "YOUR_OCI_IMAGE_WITH_NEW_ISCSI_CHANGES_ENABLED",
+#         },
+#         wait=True,
+#     ) as client:
+#         log = client.read_from_file("/var/log/cloud-init.log")
+#         # make sure that we do NOT already have networking from initramfs
+#         assert "Failed to reach IMDS without ephemeral network setup." in log
+#         iface = "ens3"
+#         # make sure the following DOES appear in the logs for ipv6:
+#         # Successfully brought up {iface} for ephemeral {ipv4|ipv6} networking.
+#         assert (
+#             f"Successfully brought up {iface} for ephemeral ipv6 networking."
+#             in log
+#         )
+#         # and make sure the above does NOT appear for ipv4:
+#         assert (
+#             f"Successfully brought up {iface} for ephemeral ipv4 networking."
+#             not in log
+#         )
+#         # make sure the following does NOT appear in the logs:
+#         # "Failed to bring up {iface} for ephemeral {ipv4|ipv6} networking."
+#         assert (
+#             f"Failed to bring up {iface} for ephemeral ipv4 networking."
+#             not in log
+#         )
+#         # by making sure neither of the ipv4 messages appear, we can be certain
+#         # that we did NOT try to bring up ipv4 ephemeral networking at all
+
+
+@pytest.mark.unstable
+@pytest.mark.skipif(PLATFORM != "oci", reason="Test is OCI specific")
+@pytest.mark.skip(
+    OS_IMAGE not in ("noble", "oracular", "questing"),
+    reason="Test must be run on Ubuntu 24.04 and newer (>= noble)",
+)
+@pytest.mark.skip(
+    EXISTING_INSTANCE_ID is None,
+    reason="Test requires a pre-launched instance with the new iSCSI changes",
+)
+def test_oci_ipv6_without_initramfs_networking_existing_instance(
+    client: IntegrationInstance,
+):
+    """
+    Test oracle datasource when network setup is skipped in initramfs.
+
+    This tests the new code path that has been unlocked thanks to the
+    recent changes in the open-iscsi ubuntu package.
+
+    THIS TEST REQUIRES A PRE-LAUNCHED INSTANCE WITH THE NEW ISCSI CHANGES
+    AND FOR THE INSTANCE TO BE ATTACHED TO AN IPV6-ONLY SUBNET.
+
+    Run this command with:
+    tox -e integration-tests -- tests/integration_tests/datasources/test_oracle_ipv6.py::test_oci_ipv6_without_initramfs_networking_existing_instance
+
+    And make sure the following are set in your user_settings.py:
+    EXISTING_INSTANCE_ID = "YOUR_EXISTING_INSTANCE_OCID"
+    OS_IMAGE = "noble"  # or "oracular" or "questing"
+    PLATFORM = "oci"
+    """
+    client.install_new_cloud_init(
+        clean=True,
+    )
+    log = client.read_from_file("/var/log/cloud-init.log")
+    # make sure that we do NOT already have networking from initramfs
+    assert "Failed to reach IMDS without ephemeral network setup." in log
+    iface = "ens3"
+    # make sure the following DOES appear in the logs for ipv6:
+    # Successfully brought up {iface} for ephemeral {ipv4|ipv6} networking.
+    assert (
+        f"Successfully brought up {iface} for ephemeral ipv6 networking."
+        in log
+    )
+    # and make sure the above does NOT appear for ipv4:
+    assert (
+        f"Successfully brought up {iface} for ephemeral ipv4 networking."
+        not in log
+    )
+    # make sure the following does NOT appear in the logs:
+    # "Failed to bring up {iface} for ephemeral {ipv4|ipv6} networking."
+    assert (
+        f"Failed to bring up {iface} for ephemeral ipv4 networking." not in log
+    )
+    # by making sure neither of the ipv4 messages appear, we can be certain
+    # that we did NOT try to bring up ipv4 ephemeral networking at all
