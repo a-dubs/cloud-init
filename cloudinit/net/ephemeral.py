@@ -451,13 +451,6 @@ class EphemeralIPNetwork:
 
         # first try to bring up ephemeral network for ipv4 (if enabled)
         # then try to bring up ephemeral network for ipv6 (if enabled)
-        if self.ipv4:
-            ipv4_ephemeral_obtained, ipv4_exception = (
-                self._perform_ephemeral_network_setup(ip_version="ipv4")
-            )
-            ephemeral_obtained |= ipv4_ephemeral_obtained
-            if ipv4_exception:
-                exceptions.append(ipv4_exception)
         if self.ipv6:
             ipv6_ephemeral_obtained, ipv6_exception = (
                 self._perform_ephemeral_network_setup(ip_version="ipv6")
@@ -465,6 +458,26 @@ class EphemeralIPNetwork:
             ephemeral_obtained |= ipv6_ephemeral_obtained
             if ipv6_exception:
                 exceptions.append(ipv6_exception)
+        
+        # short-circuit if we already have connectivity to IMDS
+        if imds_url := _check_connectivity_to_imds(
+            self.connectivity_urls_data
+        ):
+            LOG.debug(
+                "We now have connectivity to IMDS via ipv6, skipping ipv4 ephemeral setup.",
+                imds_url,
+            )
+
+        if self.ipv4:
+            if imds_url and ephemeral_obtained:
+                LOG.debug("IPv4 enabled but skipping ephemeral networking setup")
+            else:
+                ipv4_ephemeral_obtained, ipv4_exception = (
+                    self._perform_ephemeral_network_setup(ip_version="ipv4")
+                )
+                ephemeral_obtained |= ipv4_ephemeral_obtained
+                if ipv4_exception:
+                    exceptions.append(ipv4_exception)
 
         # need to set this if we only have ipv6 ephemeral network
         if (self.ipv6 and ipv6_ephemeral_obtained) or not self.ipv4:
