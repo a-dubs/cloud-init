@@ -3,6 +3,7 @@ import pytest
 from tests.integration_tests.clouds import IntegrationCloud
 from tests.integration_tests.instances import IntegrationInstance
 from tests.integration_tests.integration_settings import (
+    CLOUD_INIT_SOURCE,
     EXISTING_INSTANCE_ID,
     OS_IMAGE,
     PLATFORM,
@@ -255,17 +256,21 @@ def test_oci_ipv6_without_initramfs_networking_existing_instance(
     THIS TEST REQUIRES A PRE-LAUNCHED INSTANCE WITH THE NEW ISCSI CHANGES
     AND FOR THE INSTANCE TO BE ATTACHED TO AN IPV6-ONLY SUBNET.
 
-    Run this command with:
+    First, build your local cloud-init package with the new changes.
+
+    Then run this test with the command:
     tox -e integration-tests -- tests/integration_tests/datasources/test_oracle_ipv6.py::test_oci_ipv6_without_initramfs_networking_existing_instance
 
     And make sure the following are set in your user_settings.py:
     EXISTING_INSTANCE_ID = "YOUR_EXISTING_INSTANCE_OCID"
     OS_IMAGE = "noble"  # or "oracular" or "questing"
     PLATFORM = "oci"
+    CLOUD_INIT_SOURCE = "cloud-init_all.deb"
     """
-    client.install_new_cloud_init(
-        clean=True,
-    )
+    if CLOUD_INIT_SOURCE == "cloud-init_all.deb":
+        client.install_new_cloud_init(
+            clean=True,
+        )
     log = client.read_from_file("/var/log/cloud-init.log")
     # make sure that we do NOT already have networking from initramfs
     assert "Failed to reach IMDS without ephemeral network setup." in log
